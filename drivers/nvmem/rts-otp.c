@@ -111,6 +111,9 @@
 #define GROUP_BYTE (36)
 #define ALL_BYTES  (GROUP0_BYTE + GROUP_BYTE * (GROUP_NUMS - 1))
 
+#define KEY_NUMS       (4)
+#define KEY_GROUP_NUMS (2)
+
 #define read_reg(reg)	    readl((otp)->base + (reg))
 #define write_reg(reg, val) writel((val), (otp)->base + (reg))
 #define change_reg(reg, val, mask) \
@@ -458,37 +461,40 @@ static int rts_otp_write(void *context, unsigned int offset, void *val,
 
 int rts_otp_load_aes_key(unsigned int k)
 {
-	int ret;
+	int ret, g, i;
 	struct rts_otp *otp = g_otp;
 
 	dev_dbg(otp->dev, "%s,%d: k=%d\n", __func__, __LINE__, k);
 
-	if (k > 3)
+	if (k > KEY_NUMS - 1)
 		return -EINVAL;
 
-	if (k == otp->key)
+	/* key index 0-1 put into key group-0, 2-3 put into key group-1 */
+	g = k % KEY_GROUP_NUMS;
+	write_reg(REG_AES_KEY_GROUP, g);
+
+	if (1 << k & otp->key)
 		return 0;
 
 	/* enable power up protect */
 	change_reg(REG_SF_CTRL_0, 1, BIT(RG_PENVDD2_VDD2_SW));
 
 	/* binding key group */
-	dev_dbg(otp->dev, "%d, %d, %ld\n", KEY(0, k), KEY_SEL(0),
-		KEY_SEL_MASK(0));
-	dev_dbg(otp->dev, "%d, %d, %ld\n", KEY(1, k), KEY_SEL(1),
-		KEY_SEL_MASK(1));
-	change_reg(REG_AES_KEY_SEL, KEY(0, k) << KEY_SEL(0), KEY_SEL_MASK(0));
-	change_reg(REG_AES_KEY_SEL, KEY(1, k) << KEY_SEL(1), KEY_SEL_MASK(1));
+	for (i = 0; i < KEY_NUMS; i++) {
+		dev_dbg(otp->dev, "%d, %d, %ld\n", KEY(i, k), KEY_SEL(i),
+			KEY_SEL_MASK(i));
+		change_reg(REG_AES_KEY_SEL, KEY(i, k) << KEY_SEL(i),
+			   KEY_SEL_MASK(i));
+	}
 	/* enable load key */
 	write_reg(REG_LOAD_KEY, 1);
 
 	ret = otp_read(otp, k + 1, 0, NULL, 0);
-	if (ret) {
-		otp->key = -1;
+	if (ret)
 		goto err;
-	}
 
-	otp->key = k;
+	otp->key &= ~(11 << g);
+	otp->key |= 1 << k;
 
 err:
 	/* disable load key */
@@ -523,7 +529,7 @@ static int rts_otp_probe(struct platform_device *pdev)
 
 	g_otp = rts;
 	rts->dev = dev;
-	rts->key = -1;
+	rts->key = 0;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
