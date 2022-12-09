@@ -122,8 +122,8 @@ struct rts_otp {
 	struct clk *clk;
 	struct reset_control *rst;
 	struct nvmem_device *nvmem;
-	int64_t g_w;
 	int key;
+	uint8_t data[GROUP_BYTE];
 };
 
 static struct rts_otp *g_otp;
@@ -174,11 +174,29 @@ static void enable_ecc(struct rts_otp *otp, unsigned int group)
 static void check_ecc_status(struct rts_otp *otp, unsigned int group)
 {
 	u32 tmp, val = 0;
-	int i = 0;
+	int i = 0, start = 0, end = 2;
+
+	/* check group g-0 */
+	for (i = 0; i < 4; i++) {
+		if (*((uint32_t *)otp->data + i) != 0xFFFFFFFF)
+			break;
+	}
+
+	if (i == 4 && *((uint16_t *)otp->data + 16) == 0xFFFF)
+		start++;
+
+	/* check group g-1 */
+	for (i = 4; i < 8; i++) {
+		if (*((uint32_t *)otp->data + i) != 0xFFFFFFFF)
+			break;
+	}
+
+	if (i == 8 && *((uint16_t *)otp->data + 17) == 0xFFFF)
+		end--;
 
 	tmp = read_reg(REG_ECC_STATUS_REG0);
 
-	for (i = 0; i < 2; i++) {
+	for (i = start; i < end; i++) {
 		val = (tmp & RG_ECC_ERR_MASK(i)) >> RG_ECC_ERR(i);
 
 		switch (val) {
@@ -287,7 +305,7 @@ static int otp_read(struct rts_otp *otp, unsigned int group,
 			change_reg(REG_SF_MODE_CTRL, BIT(DOUBLE_BIT_EN),
 				   BIT(DOUBLE_BIT_EN)) :
 			change_reg(REG_SF_MODE_CTRL, 0, BIT(DOUBLE_BIT_EN));
-	else if (otp->g_w & BIT_ULL(group))
+	else
 		/* enable ecc */
 		enable_ecc(otp, group);
 
@@ -308,13 +326,15 @@ static int otp_read(struct rts_otp *otp, unsigned int group,
 		return -ETIMEDOUT;
 	}
 
+	read_data(otp, group, 0, otp->data, GROUP_BYTE);
+
 	/* check ecc status */
-	if (group && (otp->g_w & BIT_ULL(group)))
+	if (group)
 		check_ecc_status(otp, group);
 
 	/* read data reg */
 	if (val && bytes)
-		read_data(otp, group, offset, val, bytes);
+		memcpy(val, otp->data, bytes);
 
 	return 0;
 }
@@ -425,7 +445,6 @@ static int rts_otp_write(void *context, unsigned int offset, void *val,
 			if (ret)
 				return ret;
 		}
-		otp->g_w |= BIT_ULL(group);
 		walk_group_next(&group, &offset, &bytes, &len);
 		dev_dbg(otp->dev, "group=%d, offset=%d, bytes=%d, len=%d\n",
 			group, offset, bytes, len);
