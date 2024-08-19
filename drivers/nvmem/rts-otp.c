@@ -448,6 +448,13 @@ static int rts_otp_write(void *context, unsigned int offset, void *val,
 			if (ret)
 				return ret;
 		}
+		if (!group) {
+			void *rval;
+
+			ret = otp_read(otp, group, offset - len, rval, len);
+			if (ret)
+				return ret;
+		}
 		walk_group_next(&group, &offset, &bytes, &len);
 		dev_dbg(otp->dev, "group=%d, offset=%d, bytes=%d, len=%d\n",
 			group, offset, bytes, len);
