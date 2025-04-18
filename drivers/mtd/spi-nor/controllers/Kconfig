@@ -16,3 +16,19 @@ config SPI_NXP_SPIFI
 	  SPIFI is a specialized controller for connecting serial SPI
 	  Flash. Enable this option if you have a device with a SPIFI
 	  controller and want to access the Flash as a mtd device.
+
+config SPI_RTS_QUADSPI
+	tristate "Realtek Quad SPI controller"
+	help
+	  This enables support for the Quad SPI controller in master mode.
+	  We only connect the NOR to this controller now.
+
+if SPI_RTS_QUADSPI
+	choice
+		prompt "spi flash status notification way"
+	config SPI_RTS_QUADSPI_POLLING
+		bool "polling"
+	config SPI_RTS_QUADSPI_IRQ
+		bool "irq"
+	endchoice
+endif
