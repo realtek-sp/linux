@@ -77,8 +77,8 @@ static const struct serial8250_config uart_config[] = {
 	},
 	[PORT_16550A] = {
 		.name		= "16550A",
-		.fifo_size	= 16,
-		.tx_loadsz	= 16,
+		.fifo_size	= 32,
+		.tx_loadsz	= 1,
 		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10,
 		.rxtrig_bytes	= {1, 4, 8, 14},
 		.flags		= UART_CAP_FIFO,
@@ -2910,6 +2910,8 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 	/* Don't rewrite B0 */
 	if (tty_termios_baud_rate(termios))
 		tty_termios_encode_baud_rate(termios, baud, baud);
+
+	serial_port_in(port, UART_RX);
 }
 EXPORT_SYMBOL(serial8250_do_set_termios);
 
