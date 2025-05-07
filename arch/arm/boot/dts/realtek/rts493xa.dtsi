@@ -1,0 +1,527 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright (c) 2025 Realtek Semiconductor Corp. All rights reserved.
+
+/dts-v1/;
+
+#include <dt-bindings/reset/realtek,rts493xa-reset.h>
+#include <dt-bindings/reset/realtek,rts493xa-sysmem.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/clock/realtek,rts493xa.h>
+#include <dt-bindings/interrupt-controller/realtek,rts493xa.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/i2c/i2c.h>
+
+/ {
+	compatible = "realtek,rts493xa";
+	#address-cells = <1>;
+	#size-cells = <1>;
+	interrupt-parent = <&gic>;
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		linux_cma: cma {
+			compatible = "shared-dma-pool";
+		};
+	};
+
+	clocks {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		soc_clk25mhz: oscillator {
+			compatible = "fixed-clock";
+			clock-output-names = "clk25mhz";
+			clock-frequency = <25000000>;
+			#clock-cells = <0>;
+		};
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			clock-frequency = <800000000>;
+			reg = <0x0>;
+			clocks = <&clks RLX_CLK_CPU_CK>;
+			operating-points = <
+			/*kHz uV*/
+			800000 0
+			600000 0
+			400000 0
+			160000 0
+			>;
+		};
+	};
+
+	gic: interrupt-controller@19280000 {
+		compatible = "arm,cortex-a7-gic";
+		interrupt-controller;
+		#interrupt-cells = <3>;
+		#address-cells = <0>;
+		reg = <0x19281000 0x1000>,  //GIC Distributor register base
+		      <0x19282000 0x2000>;  //GIC CPU interface register base
+	};
+
+	timer {
+		compatible = "arm,armv7-timer";
+		clock-frequency = <25000000>;
+		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(1) | IRQ_TYPE_LEVEL_LOW)>;
+	};
+
+	aliases {
+		serial0 = &uart0;
+		serial1 = &uart1;
+		serial2 = &uart2;
+	};
+
+	leds: gpio-leds {
+		compatible = "gpio-leds";
+	};
+
+	soc {
+		compatible = "sheipa-bus", "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		xb2: xb2@18870000 {
+			compatible = "realtek,rts493xa-xb2";
+			reg = <0x18870000 0x30>, <0x1886f000 0x20>;
+			interrupts = <GIC_SPI BSP_IRQ_OTHER IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+		};
+
+		ddrc: ddrc@18010000 {
+			compatible = "realtek,rts493xa-ddrc";
+			reg = <0x18010000 0x100>, <0x18080000 0x100>;
+			status = "disabled";
+		};
+
+		reset: reset-controller@188d8000 {
+			compatible = "realtek,rts493xa-reset";
+			reg = <0x188d8000 0x1000>;
+			#reset-cells = <1>;
+		};
+
+		sysmem: reset-controller@188c0000 {
+			compatible = "realtek,rts493xa-sysmem";
+			reg = <0x188c0000 0x1000>;
+			#reset-cells = <1>;
+		};
+
+		clks: clks@188d0000  {
+			compatible = "realtek,rts493xa-clocks";
+			#clock-cells = <1>;
+			reg = <0x188d0000 0x1000>, <0x188b0000 0x400>;
+		};
+
+		eth0: rtl8168@18400000 {
+			compatible = "realtek,rts493xa-r8168";
+			reg = <0x18400000 0x1000>, <0x18862000 0x1000>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_ETH IRQ_TYPE_LEVEL_HIGH>;
+			resets = <&reset FORCE_RESET_ETHERNET>,            \
+					<&reset FORCE_RESET_FEPHY>, \
+					<&sysmem SYS_MEM_SD_ETH>;
+			reset-names = "eth-reset", "fephy-reset", "eth-mem-up";
+			status = "disabled";
+		};
+
+		spi0: spic@18030000 {
+			compatible = "realtek,rts493xa-quadspi";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			bus_num = <0>;
+			reg = <0x18030000 0x10000>, <0x18860080 0x28>;
+			clocks = <&clks RLX_CLK_DRAM_CK>;
+			clock-names = "spi_ck";
+			spi-deactivate-delay = <0>;
+			spi-frequency = <30000000>;
+			spi-transfer-channel = "dual";
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_SPI_NOR IRQ_TYPE_LEVEL_HIGH>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&spi_default_mode>;
+			status = "disabled";
+		};
+
+		spi1: spi@19210000 {
+			compatible = "realtek,dw-apb-ssi";
+			reg = <0x19210000 0x10000>, <0x18870070 0x20>;
+			clocks = <&clks RLX_CLK_SSI_CK>;
+			clock-names = "ssi_ck";
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_SSI IRQ_TYPE_LEVEL_HIGH>;
+			num-cs = <2>;
+			dma_transfer = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&ssi_default_mode>;
+			status = "disabled";
+		};
+
+		usb_ehci: usb_ehci@18100000 {
+			compatible = "realtek,rts493xa-ehci";
+			reg = <0x18100000 0x1000>;
+			interrupts = <GIC_SPI BSP_IRQ_EHCI IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			resets = <&reset FORCE_RESET_U2HOST>;
+			reset-names = "reset-usb-host";
+			pinctrl-names = "default";
+			pinctrl-0 = <&usbh_default_mode>;
+			status = "disabled";
+		};
+
+		usb_ohci: usb_ohci@18180000 {
+			compatible = "realtek,rts493xa-ohci";
+			reg = <0x18180000 0x1000>;
+			interrupts = <GIC_SPI BSP_IRQ_OHCI IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			resets = <&reset FORCE_RESET_U2HOST>;
+			reset-names = "reset-usb-host";
+			pinctrl-names = "default";
+			pinctrl-0 = <&usbh_default_mode>;
+			status = "disabled";
+		};
+
+		usb_device: usb_device@18290000 {
+			compatible = "realtek,rts493xa-usb-device";
+			reg = <0x18290000 0x900>, <0x18280000 0x2000>;
+			interrupts =	\
+				<GIC_SPI BSP_IRQ_USB_DEV IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI BSP_IRQ_USB_PHY IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			resets = <&reset FORCE_RESET_U2DEV>,	\
+				 <&sysmem SYS_MEM_SD_U2DEV>;
+			reset-names = "reset-usb-device", "u2dev-sysmem-up";
+			pinctrl-names = "default";
+			pinctrl-0 = <&usbd_default_mode>;
+			status = "disabled";
+		};
+
+		usb_phy: usb_phy@18140000 {
+			compatible = "realtek,rts493xa-usbphy";
+			reg = <0x18140000 0x1000>;
+			interrupts =	\
+				<GIC_SPI BSP_IRQ_USB_PHY IRQ_TYPE_LEVEL_HIGH>;
+			host-sens-obj = <7>;
+			host-sens-chirp = <10>;
+			dev-sens-obj = <0>;
+			dev-sens-normal = <7>;
+			status = "disabled";
+		};
+
+		sdhc0: mmc_sdhc@18300000 {
+			compatible = "realtek,rts493xa-sdhc";
+			reg = <0x18300000 0x100000>;
+			interrupts = <GIC_SPI BSP_IRQ_SDIO0 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			clock-names = "sd_crc_ck", "sd_sample_ck", "sd_push_ck";
+			clocks = <&clks RLX_CLK_SD0_CRC_CK>,	\
+				 <&clks RLX_CLK_SD0_SAMPLE_CK>,	\
+				 <&clks RLX_CLK_SD0_PUSH_CK>;
+			resets = <&reset FORCE_RESET_SDIO0>,    \
+				<&sysmem SYS_MEM_SD_SDIO0>;
+			reset-names = "reset-sd-device", "sdio-sysmem-up";
+			pinctrl-names = "default", "pullup", "pulldown";
+			pinctrl-0 = <&sdhc0_default_mode>;
+			pinctrl-1 = <&sdhc0_pullup_mode>;
+			pinctrl-2 = <&sdhc0_pulldown_mode>;
+			disable-wp;
+			cd-inverted;
+			bus-width = <4>;
+			cap-sd-highspeed;
+			cap-mmc-highspeed;
+			status = "disabled";
+		};
+
+		sdhc1: mmc_sdhc@18700000 {
+			compatible = "realtek,rts493xa-sdhc";
+			reg = <0x18700000 0x100000>;
+			interrupts = <GIC_SPI BSP_IRQ_SDIO1 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			clock-names = "sd_crc_ck", "sd_sample_ck", "sd_push_ck";
+			clocks = <&clks RLX_CLK_SD1_CRC_CK>,	\
+				 <&clks RLX_CLK_SD1_SAMPLE_CK>,	\
+				 <&clks RLX_CLK_SD1_PUSH_CK>;
+			resets = <&reset FORCE_RESET_SDIO1>,    \
+				 <&sysmem SYS_MEM_SD_SDIO1>;
+			reset-names = "reset-sd-device", "sdio-sysmem-up";
+			pinctrl-names = "default", "pullup", "pulldown";
+			pinctrl-0 = <&sdhc1_default_mode>;
+			pinctrl-1 = <&sdhc1_pullup_mode>;
+			pinctrl-2 = <&sdhc1_pulldown_mode>;
+			disable-wp;
+			cd-inverted;
+			bus-width = <4>;
+			cap-sd-highspeed;
+			cap-mmc-highspeed;
+			status = "disabled";
+		};
+
+		uart0: serial@18810000 {
+			compatible = "realtek,rts493xa-uart";
+			reg = <0x18810000 0x100>;
+			interrupts = <GIC_SPI BSP_IRQ_UART0 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			current-speed = <57600>;
+			clocks = <&clks RLX_CLK_UART_CK>;
+			clock-frequency = <24000000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart0_default_mode>;
+			status = "disabled";
+		};
+
+		uart1: serial@18810100 {
+			compatible = "realtek,rts493xa-uart";
+			reg = <0x18810100 0x100>;
+			interrupts = <GIC_SPI BSP_IRQ_UART1 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			current-speed = <57600>;
+			no-loopback-test;
+			clocks = <&clks RLX_CLK_UART1_CK>;
+			clock-frequency = <24000000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart1_default_mode>;
+			status = "disabled";
+		};
+
+		uart2: serial@18810200 {
+			compatible = "realtek,rts493xa-uart";
+			reg = <0x18810200 0x100>;
+			interrupts = <GIC_SPI BSP_IRQ_UART2 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			current-speed = <57600>;
+			clocks = <&clks RLX_CLK_UART2_CK>;
+			clock-frequency = <24000000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart2_default_mode>;
+			status = "disabled";
+		};
+
+		i2c0: i2c@18880000 {
+			compatible = "realtek,rts493xa-i2c";
+			reg = <0x18880000 0x1000>;
+			interrupts = <GIC_SPI BSP_IRQ_I2C0 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			clocks = <&clks RLX_CLK_I2C_CK>;
+			clock-names = "i2c_ck";
+			resets = <&reset FORCE_RESET_I2C0>;
+			reset-names = "reset-i2c";
+			pinctrl-names = "default";
+			pinctrl-0 = <&i2c0_default_mode>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		i2c1: i2c@18881000 {
+			compatible = "realtek,rts493xa-i2c";
+			reg = <0x18881000 0x1000>;
+			interrupts = <GIC_SPI BSP_IRQ_I2C1 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			clocks = <&clks RLX_CLK_I2C1_CK>;
+			clock-names = "i2c_ck";
+			resets = <&reset FORCE_RESET_I2C1>;
+			reset-names = "reset-i2c";
+			pinctrl-names = "default";
+			pinctrl-0 = <&i2c1_default_mode>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		pwm: pwm@18820000 {
+			compatible = "realtek,rts493xa-pwm";
+			reg = <0x18820000 0x10000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pwm_default_mode>;
+			status = "disabled";
+		};
+
+		watchdog: watchdog@188da000 {
+			compatible = "realtek,rts493xa-wdt";
+			reg = <0x188da000 0x10000>;
+			status = "disabled";
+		};
+
+		rtc: rtc@18850000 {
+			compatible = "realtek,rts493xa-rtc";
+			reg = <0x18850000 0x1000>;
+			interrupts = <GIC_SPI BSP_IRQ_OTHER IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			status = "disabled";
+		};
+
+		thermal: thermal@188a0200 {
+			compatible = "realtek,rts493xa-thermal";
+			reg = <0x188a0200 0x100>;
+			interrupts = \
+				<GIC_SPI BSP_IRQ_THERMAL IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			num-trips = <2>;
+			trip0-temp = <7500>;
+			trip1-temp = <8500>;
+			thermal_k = /bits/ 32 <26815 27315 27815 28315 28815
+				29315 29815 30315 30815 31315 31815 32315 32815
+				33315 33815 34315 34815 35315>;
+			status = "disabled";
+		};
+
+		saradc: saradc@18840000 {
+			compatible = "realtek,rts493xa-saradc";
+			reg = <0x18840000 0x10000>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&saradc_default_mode>;
+			status = "disabled";
+		};
+
+		rts_timer0: rts_timer@18890000 {
+			compatible = "realtek,rts493xa-timer";
+			reg = <0x18890000 0x100>;
+			io-gpio = <&pinctrl 14 GPIO_ACTIVE_HIGH>;
+			interrupts = \
+				<GIC_SPI BSP_IRQ_TIMER0 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			status = "disabled";
+		};
+
+		rts_timer1: rts_timer@18891000 {
+			compatible = "realtek,rts493xa-timer";
+			reg = <0x18891000 0x100>;
+			io-gpio = <&pinctrl 15 GPIO_ACTIVE_HIGH>;
+			interrupts = \
+				<GIC_SPI BSP_IRQ_TIMER1 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			status = "disabled";
+		};
+
+		pinctrl: pinctrl@18800000 {
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges;
+			compatible = "realtek,rts493xa-pinctrl";
+			reg = <0x18800000 0x10000 0x18300000 0x100000
+				0x18700000 0x100000 0x185000d4 0x4>;
+			interrupts = <GIC_SPI BSP_IRQ_GPIO IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-parent = <&gic>;
+			pwm-etnled-mapping = /bits/ 32 <0 1 2 0>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			ngpios = <89>;
+			status = "disabled";
+		};
+
+		crypto: crypto@18600000 {
+			compatible = "realtek,rts493xa-crypto";
+			reg = <0x18600000 0x10000>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_AES IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks RLX_CLK_CIPHER_CK>;
+			clock-names = "cipher_ck";
+			resets = <&reset FORCE_RESET_CIPHER>,
+				<&sysmem SYS_MEM_SD_CIPHER>;
+			reset-names = "rst", "sd";
+			/* power-domains = <&power RTS_PD_TOP_OFF>; */
+			aes = "ecb", "cbc", "ctr";
+			aead = "gcm(aes)", "ccm(aes)";
+			status = "disabled";
+		};
+
+		sha: sha@19200000 {
+			compatible = "realtek,rts493xa-sha";
+			reg = <0x19200000 0x10000>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_SHA IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks RLX_CLK_SHA>;
+			clock-names = "sha_ck";
+			resets = <&reset FORCE_RESET_SHA256>;
+			reset-names = "rst";
+			/* power-domains = <&power RTS_PD_TOP_OFF>; */
+			status = "disabled";
+		};
+
+		rsa: rsa@18f00000 {
+			compatible = "realtek,rts493xa-rsa";
+			reg = <0x18f00000 0x10000>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_RSA IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks RLX_CLK_RSA>;
+			clock-names = "rsa_ck";
+			resets = <&reset FORCE_RESET_RSA>,
+				<&sysmem SYS_MEM_SD_RSA>;
+			reset-names = "rst", "sd";
+			/* power-domains = <&power RTS_PD_TOP_OFF>; */
+			status = "disabled";
+		};
+
+		dmahost: dma-controller@18020000 {
+			compatible = "realtek,rts493xa-dmac";
+			reg = <0x18020000 0x100>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_DMA IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks RLX_CLK_DMA_CK>;
+			#dma-cells = <3>;
+			dma-channels = <2>;
+			dma-vchannels = <4>;
+			dma-masters = <1>;
+			chan_priority = <1>;
+			block_size = <0xfff>;
+			data-width = <4 0 0 0>;
+			status = "disabled";
+		};
+
+		otp: otp@188a0300 {
+			compatible = "realtek,rts-otp";
+			reg = <0x188a0300 0x1000>;
+			clocks = <&clks RLX_CLK_OTP>;
+			clock-names = "otp_ck";
+			resets = <&reset FORCE_RESET_OTP>;
+			reset-names = "rst";
+			status = "disabled";
+		};
+
+		trng: trng@188a0100 {
+			compatible = "realtek,rts493xa-trng";
+			reg = <0x188a0100 0x100>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI BSP_IRQ_TRNG IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clks RLX_CLK_TRNG>;
+			clock-names = "trng_ck";
+			resets = <&reset FORCE_RESET_TRNG>;
+			reset-names = "rst";
+			status = "disabled";
+		};
+
+		rts_capemgr {
+			compatible = "realtek,rts-capemgr";
+			status = "disabled";
+		};
+
+		rts_mdio: rts_mdio {
+			compatible = "rts-mdio";
+			status = "disabled";
+
+			ta-nums = <4>;
+			mdc-gpio = <&pinctrl 2 GPIO_ACTIVE_HIGH>;
+			mdio-gpio = <&pinctrl 3 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};

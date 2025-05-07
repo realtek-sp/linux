@@ -8,4 +8,20 @@ menuconfig ARCH_REALTEK
 	select GENERIC_IRQ_CHIP
 	select RESET_CONTROLLER
 	help
+	  This enables support for the Realtek SoC family.
+
+if ARCH_REALTEK
+
+config MACH_RTD1195
+	bool "Realtek RTD1195 Soc"
+	help
 	  This enables support for the Realtek RTD1195 SoC family.
+
+config MACH_RTS493X
+	bool "Realtek RTS493X Soc"
+	select HAVE_ARM_ARCH_TIMER
+	select DEBUG_UNCOMPRESS
+	help
+	  This enables support for the Realtek RTS493X SoC family.
+
+endif

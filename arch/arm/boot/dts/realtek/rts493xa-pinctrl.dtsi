@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright (c) 2025 Realtek Semiconductor Corp. All rights reserved.
+
+&pinctrl {
+	i2c0_default_mode: i2c0_default {
+		default_mux {
+			function = "i2cfunc";
+			groups = "i2c0grp";
+		};
+	};
+
+	i2c1_default_mode: i2c1_default {
+		default_mux {
+			function = "i2cfunc";
+			groups = "i2c1grp";
+		};
+	};
+
+	uart0_default_mode: uart0_default {
+		default_mux {
+			function = "uartfunc";
+			groups = "uart0grp";
+		};
+	};
+
+	uart1_default_mode: uart1_default {
+		default_mux {
+			function = "uartfunc";
+			groups = "uart1grp";
+		};
+	};
+
+	uart2_default_mode: uart2_default {
+		default_mux {
+			function = "uartfunc";
+			groups = "uart2grp";
+		};
+	};
+
+	sdhc0_default_mode: sdhc0_default {
+		default_mux {
+			function = "sdio0func";
+			groups = "sdio0grp", "sdio0cdgrp",
+				"sdio0wpgrp";
+		};
+	};
+
+	sdhc0_pullup_mode: sdhc0_pullup {
+		default_mux {
+			function = "sdio0func";
+			groups = "sdio0grp", "sdio0cdgrp",
+				"sdio0wpgrp";
+		};
+		pullup_cfg0 {
+			pins = "SDIO0_CMD", "SDIO0_DATA3",
+				"SDIO0_DATA2", "SDIO0_DATA1",
+				"SDIO0_DATA0";
+			bias-pull-up;
+			drive-strength = <8>;
+		};
+		pullup_cfg1 {
+			pins = "SDIO0_CD", "SDIO0_WP";
+			bias-pull-up;
+			drive-strength = <4>;
+		};
+		pullup_cfg2 {
+			pins = "SDIO0_CLK";
+			bias-pull-down;
+			drive-strength = <8>;
+		};
+	};
+
+	sdhc0_pulldown_mode: sdhc0_pulldown {
+		default_mux {
+			function = "sdio0func";
+			groups = "sdio0grp", "sdio0cdgrp",
+				"sdio0wpgrp";
+		};
+		pulldown_cfg0 {
+			pins = "SDIO0_CD";
+			bias-pull-up;
+			drive-strength = <4>;
+		};
+		pulldown_cfg1 {
+			pins = "SDIO0_WP";
+			bias-pull-down;
+			drive-strength = <4>;
+		};
+		pulldown_cfg2 {
+			pins = "SDIO0_CMD", "SDIO0_DATA3",
+				"SDIO0_DATA2", "SDIO0_DATA1",
+				"SDIO0_DATA0", "SDIO0_CLK";
+			bias-pull-down;
+			drive-strength = <8>;
+		};
+	};
+
+	sdhc1_default_mode: sdhc1_default {
+		default_mux {
+			function = "sdio1func";
+			groups = "sdio1grp", "sdio1cdgrp",
+				"sdio1wpgrp";
+		};
+	};
+
+	sdhc1_pullup_mode: sdhc1_pullup {
+		default_mux {
+			function = "sdio1func";
+			groups = "sdio1grp", "sdio1cdgrp",
+				"sdio1wpgrp";
+		};
+		pullup_cfg0 {
+			pins = "SDIO1_CMD", "SDIO1_DATA3",
+				"SDIO1_DATA2", "SDIO1_DATA1",
+				"SDIO1_DATA0";
+			bias-pull-up;
+			drive-strength = <8>;
+		};
+		pullup_cfg1 {
+			pins = "SDIO1_CD", "SDIO1_WP";
+			bias-pull-up;
+			drive-strength = <4>;
+		};
+		pullup_cfg2 {
+			pins = "SDIO1_CLK";
+			bias-pull-down;
+			drive-strength = <8>;
+		};
+	};
+
+	sdhc1_pulldown_mode: sdhc1_pulldown {
+		default_mux {
+			function = "sdio1func";
+			groups = "sdio1grp", "sdio1cdgrp",
+				"sdio1wpgrp";
+		};
+		pulldown_cfg0 {
+			pins = "SDIO1_CD";
+			bias-pull-up;
+			drive-strength = <4>;
+		};
+		pulldown_cfg1 {
+			pins = "SDIO1_WP";
+			bias-pull-down;
+			drive-strength = <4>;
+		};
+		pulldown_cfg2 {
+			pins = "SDIO1_CMD", "SDIO1_DATA3",
+				"SDIO1_DATA2", "SDIO1_DATA1",
+				"SDIO1_DATA0", "SDIO1_CLK";
+			bias-pull-down;
+			drive-strength = <8>;
+		};
+	};
+
+	usbd_default_mode: usbd_default {
+		default_mux {
+			function = "usbdfunc";
+			groups = "usbdgrp";
+		};
+	};
+
+	usbh_default_mode: usbh_default {
+		default_mux {
+			function = "usbhfunc";
+			groups = "usbhgrp";
+		};
+	};
+
+	eth_default_mode: eth_default {
+		default_mux {
+			function = "etnledfunc";
+		};
+	};
+
+	pwm_default_mode: pwm_default {
+		default_mux {
+			function = "pwmfunc";
+			groups = "pwm0grp","pwm1grp",
+				"pwm2grp","pwm3grp";
+		};
+	};
+
+	ssi_default_mode: ssi_default {
+		default_mux {
+			function = "ssifunc";
+			groups = "ssigrp";
+		};
+	};
+
+	spi_default_mode: spi_default {
+		default_mux {
+			function = "spifunc";
+			groups = "spigrp";
+		};
+	};
+
+	saradc_default_mode: saradc_default {
+		default_mux {
+			function = "saradcfunc";
+			groups = "saradc0grp";
+		};
+		default_cfg {
+			pins = "CH_SAR_PAD0";
+			bias-disable;
+		};
+	};
+};
+

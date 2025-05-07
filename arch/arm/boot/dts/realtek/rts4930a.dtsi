@@ -1,0 +1,141 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright (c) 2025 Realtek Semiconductor Corp. All rights reserved.
+
+#include "rts493xa.dtsi"
+#include "rts493xa-pinctrl.dtsi"
+
+&eth0 {
+	status = "okay";
+};
+
+&spi0 {
+	status = "okay";
+};
+
+&spi1 {
+	status = "okay";
+};
+
+&usb_ehci {
+	status = "okay";
+};
+
+&usb_ohci {
+	status = "okay";
+};
+
+&usb_device {
+	status = "okay";
+};
+
+&usb_phy {
+	status = "okay";
+};
+
+&sdhc0 {
+	pwr-ctrl-gpio = <&pinctrl 12 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+};
+
+&pinctrl {
+	sdhc1_default_mode: sdhc1_default {
+		default_mux {
+			function = "sdio1func";
+			groups = "sdio1videogrp";
+		};
+	};
+
+	sdhc1_pullup_mode: sdhc1_pullup {
+		default_mux {
+			function = "sdio1func";
+			groups = "sdio1videogrp";
+		};
+		pullup_cfg0 {
+			pins = "GPIO8",
+				"PAD_SSOR_PIXDIN_EXT_0",
+				"PAD_SSOR_HSYNC",
+				"PAD_SSOR_VSYNC",
+				"PAD_SSOR_PIXCLK";
+			bias-pull-up;
+		};
+	};
+
+	sdhc1_pulldown_mode: sdhc1_pulldown {
+		default_mux {
+			function = "sdio1func";
+			groups = "sdio1videogrp";
+		};
+		pulldown_cfg2 {
+			pins = "GPIO8",
+				"PAD_SSOR_PIXDIN_EXT_0",
+				"PAD_SSOR_HSYNC",
+				"PAD_SSOR_VSYNC",
+				"PAD_SSOR_PIXCLK";
+			bias-pull-down;
+		};
+	};
+};
+
+&sdhc1 {
+	broken-cd;
+};
+
+&uart1 {
+	status = "okay";
+};
+
+&i2c0 {
+	status = "okay";
+};
+
+&i2c1 {
+	status = "okay";
+};
+
+&watchdog {
+	status = "okay";
+};
+
+&rtc {
+	status = "okay";
+};
+
+&thermal {
+	status = "okay";
+};
+
+&rts_timer0 {
+	status = "okay";
+};
+
+&rts_timer1 {
+	status = "okay";
+};
+
+&pinctrl {
+	status = "okay";
+};
+
+&crypto {
+	status = "okay";
+};
+
+&sha {
+	status = "okay";
+};
+
+&rsa {
+	status = "okay";
+};
+
+&dmahost {
+	status = "okay";
+};
+
+&otp {
+	status = "okay";
+};
+
+&trng {
+	status = "okay";
+};
