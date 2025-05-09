@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Realtek device configuration
+#
+
+config RTL8168G_8048
+	bool "Realtek RTL-8168G_8048 10/100 Mbps Ethernet Adapter support"
+	select CRC32
+	select NET_CORE
+	select MII
+	help
+	  Support for rtl8168_8048 chipset.
+
+if RTL8168G_8048
+config RTL8168_DMA_TEST
+	bool "Enable rtl8168 RX driect connect TX for DMA test"
+
+config NUM_RX_DESC
+	bool "Set RX DESC NUM"
+	default y
+
+if NUM_RX_DESC
+choice
+	prompt "Selected NUM_RX_DESC"
+	default NUM_RX_DESC_1024
+
+config NUM_RX_DESC_1024
+	bool "Set rx desc number 1024"
+
+config NUM_RX_DESC_512
+	bool "Set rx desc number 512"
+
+config NUM_RX_DESC_256
+	bool "Set rx desc number 256"
+
+endchoice
+endif
+
+config NUM_TX_DESC
+	bool "Set TX DESC NUM"
+	default y
+
+if NUM_TX_DESC
+choice
+	prompt "Selected NUM_TX_DESC"
+	default NUM_TX_DESC_1024
+
+config NUM_TX_DESC_1024
+	bool "Set tx desc number 1024"
+
+config NUM_TX_DESC_512
+	bool "Set tx desc number 512"
+
+config NUM_TX_DESC_256
+	bool "Set tx desc number 256"
+
+endchoice
+endif
+
+endif
