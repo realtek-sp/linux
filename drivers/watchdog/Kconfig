@@ -294,6 +294,24 @@ config WM8350_WATCHDOG
 	  Support for the watchdog in the WM8350 AudioPlus PMIC.  When
 	  the watchdog triggers the system will be reset.
 
+config RTS493XA_WATCHDOG
+	tristate "Realtek BMC watchdog"
+	select WATCHDOG_CORE
+	help
+	  Support for the watchdog in Realtek BMC SOC. When
+	  the watchdog triggers the system will be reset.
+	  This will reboot your system when the timeout is reached.
+	  The watchdog is usually used together with the watchdog daemon.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called rts493xa_wdt.
+
+config EXTERNAL_RESET
+	bool "External reset"
+	depends on RTS493XA_WATCHDOG
+	help
+	  External reset
+
 config XILINX_WATCHDOG
 	tristate "Xilinx Watchdog timer"
 	depends on HAS_IOMEM
