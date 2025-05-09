@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config PINCTRL_REALTEK_MC
+	bool "Realtek MC pin control"
+	depends on OF
+	select PINMUX
+	select PINCONF
+	select GPIOLIB
+	select GENERIC_PINCONF
+	help
+	  Say Y here to enable pin controller support for Realtek's
+	  management controller SoCs.
