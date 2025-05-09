@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config RESET_REALTEK
+	tristate "Realtek Reset Driver"
+	help
+	  This enable the reset controller driver for Realtek RTS493x Series SoC.
