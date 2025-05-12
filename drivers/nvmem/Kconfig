@@ -417,4 +417,24 @@ config NVMEM_QORIQ_EFUSE
 	  This driver can also be built as a module. If so, the module
 	  will be called nvmem_qoriq_efuse.
 
+config RTS_OTP
+	tristate "Realtek OTP Support"
+	depends on HAS_IOMEM
+
+	help
+	  This is a driver to retrieve specific values from the otp found on
+	  the Realtek RTS493X SoCs.
+
+	  This otp supports error correction, including double bits and ecc.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called nvmem-rts-otp.
+
+config RTS_OTP_WRITABLE
+	bool "Realtek OTP Writable"
+	depends on RTS_OTP
+
+	help
+	  Configure whether otp is writable
+
 endif
