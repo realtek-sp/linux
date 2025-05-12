@@ -341,6 +341,12 @@ config SPI_DW_BT1_DIRMAP
 	  time-critical tasks (like the SPI memory operations implemented
 	  in this driver).
 
+config SPI_DW_RTS493X
+	tristate "RTS493x driver for DW SPI core"
+	depends on SPI_DESIGNWARE
+	help
+	  SSI driver for Realtek RTS493x Series SoC ssi interface driver.
+
 endif
 
 config SPI_DLN2

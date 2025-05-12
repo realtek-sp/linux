@@ -164,7 +164,6 @@
 			interrupt-parent = <&gic>;
 			interrupts = <GIC_SPI BSP_IRQ_SSI IRQ_TYPE_LEVEL_HIGH>;
 			num-cs = <2>;
-			dma_transfer = <1>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 			pinctrl-names = "default";
