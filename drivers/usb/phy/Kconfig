@@ -172,4 +172,16 @@ config USB_ULPI_VIEWPORT
 	  Provides read/write operations to the ULPI phy register set for
 	  controllers with a viewport register (e.g. Chipidea/ARC controllers).
 
+config USB_RTS493X_PHY
+	tristate "Realtek RTS493x USB PHY support"
+	select USB_PHY
+	help
+	  Enable this to support Realtek RTS493x Series SoC USB PHY.
+
+config USB_RTS493X_PHY_DEBUG
+	bool "Debug Realtek USB PHY"
+	depends on USB_RTS493X_PHY
+	help
+	  Debug Realtek RTS493x Series SoC USB PHY
+
 endmenu
