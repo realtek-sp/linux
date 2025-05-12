@@ -347,6 +347,14 @@ config USB_OCTEON_EHCI
 	  USB 2.0 device support.  All CN6XXX based chips with USB are
 	  supported.
 
+config USB_EHCI_RTS493X
+	tristate "EHCI driver for Realtek RTS493x Series SoC"
+	select USB_EHCI_ROOT_HUB_TT
+	select USB_PHY
+	help
+	  This driver enables support for the internal USB Host Controllers
+	  found in Realtek RTS493x Series SoC. The controllers are EHCI compliant.
+
 endif # USB_EHCI_HCD
 
 config USB_OXU210HP_HCD
@@ -574,6 +582,14 @@ config USB_OCTEON_OHCI
 	  controller.  It is needed for low-speed USB 1.0 device
 	  support.  All CN6XXX based chips with USB are supported.
 
+config USB_OHCI_RTS493X
+	tristate "OHCI driver for Realtek RTS493x Series SoC"
+	select USB_PHY
+	depends on !USB_EHCI_RTS493X
+	help
+	  This driver enables support for the internal USB Host Controllers
+	  found in Realtek RTS493x Series SoC. The controllers are OHCI compliant.
+
 endif # USB_OHCI_HCD
 
 config USB_UHCI_HCD
@@ -628,7 +644,7 @@ config USB_SL811_HCD
 	help
 	  The SL811HS is a single-port USB controller that supports either
 	  host side or peripheral side roles.  Enable this option if your
-	  board has this chip, and you want to use it as a host controller. 
+	  board has this chip, and you want to use it as a host controller.
 	  If unsure, say N.
 
 	  To compile this driver as a module, choose M here: the
