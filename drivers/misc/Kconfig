@@ -562,6 +562,13 @@ config TPS6594_PFSM
 	  This driver can also be built as a module.  If so, the module
 	  will be called tps6594-pfsm.
 
+config RTS493X_DDRC
+	tristate "RTS493X DDR controller support"
+	select RTS493X_THERMAL
+	default y
+	help
+	  Say Y here to include support for Realtek RTS493x Series SoC DDR controller.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
