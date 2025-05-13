@@ -588,6 +588,26 @@ config RTC_DRV_TPS65910
 	  This driver can also be built as a module. If so, the module
 	  will be called rtc-tps65910.
 
+config RTC_DRV_RTS493XA
+	tristate "realtek RTC"
+	select HAVE_EXTRA_CSRC
+	help
+	  If you say yes here you get support for the
+	  realtek rtc. The RTC device that will be used to (re)initialize
+	  the system clock, usually rtc0. Initialization is done when
+	  the system starts up. This clock should be battery-backed, so that
+	  it reads the correct time when the system boots from a power-off state.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called rtc-rts.
+
+config RTC_EXTERN_XTAL
+	bool "use extern xtal"
+	default n
+	depends on RTC_DRV_RTS493XA
+	help
+	  If you say yes here you use extern xtal input for rtc clock.
+
 config RTC_DRV_RC5T583
 	tristate "RICOH 5T583 RTC driver"
 	depends on MFD_RC5T583
