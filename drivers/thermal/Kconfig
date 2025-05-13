@@ -424,6 +424,17 @@ config DA9062_THERMAL
 	  zone.
 	  Compatible with the DA9062 and DA9061 PMICs.
 
+config RTS493XA_THERMAL
+	tristate "rts thermal"
+	depends on THERMAL
+	default n
+	help
+	  Enable this option if you want to have support for thermal management
+	  controller present in BMC.
+
+	  Thermal reporting device will provide temperature reading,
+	  programmable trip points and other information.
+
 menu "Mediatek thermal drivers"
 depends on ARCH_MEDIATEK || COMPILE_TEST
 source "drivers/thermal/mediatek/Kconfig"
