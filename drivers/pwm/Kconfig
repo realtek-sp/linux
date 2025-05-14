@@ -473,6 +473,17 @@ config PWM_RASPBERRYPI_POE
 	  Enable Raspberry Pi firmware controller PWM bus used to control the
 	  official RPI PoE hat
 
+config PWM_RTS493XA
+	tristate "Realtek RTS493XA PWM support"
+	help
+	  Generic PWM framework driver for Realtek RTS493XA. This PWM output
+	  is mainly used to control the LCD backlight. In Pulse-Width Modulation,
+	  a variation of the width of pulses in a rectangular pulse signal
+	  is used as a means to alter the average power of the signal.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called pwm-rts493xa.
+
 config PWM_RCAR
 	tristate "Renesas R-Car PWM support"
 	depends on ARCH_RENESAS || COMPILE_TEST
