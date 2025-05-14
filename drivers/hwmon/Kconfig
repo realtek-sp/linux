@@ -303,6 +303,16 @@ config SENSORS_ASC7621
 	  This driver can also be built as a module. If so, the module
 	  will be called asc7621.
 
+ config SENSORS_RTS493XA_SARADC
+	 tristate "Realtek RTS493XA Saradc"
+	 help
+	  This driver provides support for hardware sensors available on
+	  the realtek BMC chips. It can provide wide range of information
+	  like temperature.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called rts493xa_saradc.
+
 config SENSORS_AXI_FAN_CONTROL
 	tristate "Analog Devices FAN Control HDL Core driver"
 	help
