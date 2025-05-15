@@ -733,6 +733,13 @@ config XILINX_ZYNQMP_DPDMA
 	  driver provides the dmaengine required by the DisplayPort subsystem
 	  display driver.
 
+config RTS_DMAC
+	tristate "Realtek DMA support"
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	help
+	  Support the Realtek DMA controller.
+
 # driver files
 source "drivers/dma/bestcomm/Kconfig"
 
