@@ -251,6 +251,15 @@ config DA8XX_MSTPRI
 	  configuration. Allows to adjust the priorities of all master
 	  peripherals.
 
+config RTS493XA_XB2_BUS
+	bool "Realtek RTS493XA XB2 Bus Driver"
+	default y
+	depends on OF
+	help
+	  Platform configuration infrastructure for Realtek BMC.
+	  This controller is responsible for the irq signal process of
+	  the device on XB2 bus such as PWM, SARADC, and RTC ICs.
+
 source "drivers/bus/fsl-mc/Kconfig"
 source "drivers/bus/mhi/Kconfig"
 
