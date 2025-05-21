@@ -95,8 +95,6 @@ struct rts_usb_phy_regs {
 #define UPHY_PORT_OC_POLARITY_SEL_HI  0x10000
 };
 
-#define RTS3901_HOST_DISCONN_THD 0x0C
-
 #define RTS_Z0_CODE 9
 #define RTS_DEV_SEN 2
 #define RTS_HST_SEN 2
