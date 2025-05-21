@@ -832,6 +832,8 @@ static int rts_qspi_setup(struct rts_qspi *rqspi, struct device_node *np)
 	if (ret)
 		return ret;
 
+	spi_nor_debugfs_register(&rqspi->nor);
+
 	return 0;
 }
 
