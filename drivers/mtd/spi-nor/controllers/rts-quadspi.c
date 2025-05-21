@@ -595,7 +595,7 @@ static ssize_t rts_qspi_write_irq(struct spi_nor *nor, loff_t to, size_t len,
 		rts_writel(rqspi, TX_NDF, 0);
 		rts_writel(rqspi, USER_LENGTH, 0);
 		rts_writel(rqspi, SSIENR, 3);
-		timeleft = wait_for_completion_interruptible_timeout(
+		timeleft = wait_for_completion_timeout(
 			rqspi->done, msecs_to_jiffies(timeout));
 		if (timeleft <= 0) {
 			ret = -ETIMEDOUT;
@@ -676,8 +676,8 @@ static int rts_qspi_erase_irq(struct spi_nor *nor, loff_t offs)
 	/* make auto check timeout longer */
 	rts_writel(rqspi, BAUDR, baudr * 20);
 	rts_writel(rqspi, SSIENR, 3);
-	timeleft = wait_for_completion_interruptible_timeout(
-		rqspi->done, msecs_to_jiffies(timeout));
+	timeleft = wait_for_completion_timeout(rqspi->done,
+					       msecs_to_jiffies(timeout));
 	rts_writel(rqspi, SSIENR, 0);
 	rts_writel(rqspi, BAUDR, baudr);
 	if (timeleft <= 0) {
