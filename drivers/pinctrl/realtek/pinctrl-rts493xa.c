@@ -222,7 +222,7 @@ enum {
 	((reg & (~(((1 << width) - 1) << offset))) | \
 	 ((field & ((1 << width) - 1)) << offset))
 
-#define RTS_SOC_CAM_HW_ID(type) ((int)(type) & 0xff)
+#define RTS_SOC_HW_ID(type)	((int)(type) & 0xff)
 #define RTS_MAX_NGPIO		89
 
 enum {
@@ -595,8 +595,6 @@ enum {
 	UART2_USB_GROUP_SELECT,
 	I2C1_GROUP_SELECT,
 	SPI_GROUP_SELECT,
-	PDM_GROUP_SELECT,
-	SPDIF_OUT_GROUP_SELECT,
 	PWMSD_GROUP_SELECT,
 	DEFAULT_GROUP_SELECT,
 };
@@ -796,7 +794,7 @@ static const char *const sdio1grps[] = { "sdio1grp", "sdio1wpgrp", "sdio1cdgrp",
 
 static const char *const i2cgrps[] = { "i2c0grp", "i2cpwmgrp", "i2c1grp" };
 
-static const char *const spigrps[] = { "spigrp" };
+static const char *const spigrps[] = { "spigrp", "default" };
 
 static const struct rts_func rts_functions[] = {
 	{
@@ -1497,7 +1495,13 @@ static int rts_pmx_enable(struct pinctrl_dev *rtspctldev,
 		}
 		break;
 	case SPI_FUNC_SELECT:
-		rts_gpio_set_field(rtspc->addr + SPI_PAD_CFG, 2, 4, 0);
+		if (group_selector == DEFAULT_GROUP_SELECT) {
+			rts_gpio_set_field(rtspc->addr + SPI_PAD_CFG, 1, 4, 0);
+			rts_gpio_set_field(rtspc->addr + SPI_PAD_CFG, 1, 4, 4);
+		} else if (group_selector == SPI_GROUP_SELECT) {
+			rts_gpio_set_field(rtspc->addr + SPI_PAD_CFG, 2, 4, 0);
+			rts_gpio_set_field(rtspc->addr + SPI_PAD_CFG, 2, 4, 4);
+		}
 		break;
 	default:
 		dev_err(rtspc->dev, "not known function selector %d\n",
@@ -1916,7 +1920,7 @@ static int rts_pinctrl_probe(struct platform_device *pdev)
 		goto free_rtspc;
 	}
 
-	rtspc->devt = RTS_SOC_CAM_HW_ID(of_id->data);
+	rtspc->devt = RTS_SOC_HW_ID(of_id->data);
 	platform_set_drvdata(pdev, rtspc);
 	rtspc->dev = dev;
 

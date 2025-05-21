@@ -150,8 +150,9 @@
 			spi-transfer-channel = "dual";
 			interrupt-parent = <&gic>;
 			interrupts = <GIC_SPI BSP_IRQ_SPI_NOR IRQ_TYPE_LEVEL_HIGH>;
-			pinctrl-names = "default";
+			pinctrl-names = "default", "quad";
 			pinctrl-0 = <&spi_default_mode>;
+			pinctrl-1 = <&spi_quad_mode>;
 			status = "disabled";
 		};
 

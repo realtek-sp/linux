@@ -80,8 +80,6 @@ enum {
 	TYPE_FPGA = (1 << 16),
 };
 
-#define RTS_SOC_CAM_HW_ID(type) ((type) & 0xff)
-
 struct rts_rtc {
 	struct resource *mem;
 	void __iomem *base;

@@ -82,7 +82,7 @@ enum {
 	TYPE_FPGA = (1 << 16),
 };
 
-#define RTS_SOC_CAM_HW_ID(type) ((type) & 0xff)
+#define RTS_SOC_HW_ID(type) ((type) & 0xff)
 
 static void rts_set_field(void __iomem *reg, unsigned int field,
 			  unsigned int width, unsigned int offset)
@@ -325,7 +325,7 @@ static int rts_wdt_probe(struct platform_device *pdev)
 
 	of_id = of_match_device(rts493xa_wd_match, &pdev->dev);
 
-	ictype = RTS_SOC_CAM_HW_ID((int)of_id->data);
+	ictype = RTS_SOC_HW_ID((int)of_id->data);
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!r) {

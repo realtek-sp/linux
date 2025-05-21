@@ -263,7 +263,7 @@ struct rts_qspi {
 
 	struct {
 		struct pinctrl *p;
-		struct pinctrl_state *default_state;
+		struct pinctrl_state *quad_state;
 	} pins;
 };
 

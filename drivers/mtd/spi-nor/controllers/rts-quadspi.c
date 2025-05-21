@@ -817,15 +817,15 @@ static int rts_qspi_setup(struct rts_qspi *rqspi, struct device_node *np)
 			ret = PTR_ERR(rqspi->pins.p);
 			return ret;
 		}
-		rqspi->pins.default_state =
-			pinctrl_lookup_state(rqspi->pins.p, "default");
-		if (IS_ERR(rqspi->pins.default_state)) {
-			dev_err(&pdev->dev, "get default state fail\n");
+		rqspi->pins.quad_state =
+			pinctrl_lookup_state(rqspi->pins.p, "quad");
+		if (IS_ERR(rqspi->pins.quad_state)) {
+			dev_err(&pdev->dev, "get quad state fail\n");
 			devm_pinctrl_put(rqspi->pins.p);
-			ret = PTR_ERR(rqspi->pins.default_state);
+			ret = PTR_ERR(rqspi->pins.quad_state);
 			return ret;
 		}
-		pinctrl_select_state(rqspi->pins.p, rqspi->pins.default_state);
+		pinctrl_select_state(rqspi->pins.p, rqspi->pins.quad_state);
 	}
 
 	ret = spi_nor_scan(&rqspi->nor, NULL, &hwcaps);

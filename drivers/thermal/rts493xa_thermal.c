@@ -64,8 +64,6 @@ enum ddr_state {
 	DDR_STATUS_HIGH,
 };
 
-#define RTS_SOC_CAM_HW_ID(type) ((type) & 0xff)
-
 struct blocking_notifier_head ddrc_trigger;
 
 struct rts_trip_point {

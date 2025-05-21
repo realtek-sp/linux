@@ -191,6 +191,13 @@
 	spi_default_mode: spi_default {
 		default_mux {
 			function = "spifunc";
+			groups = "default";
+		};
+	};
+
+	spi_quad_mode: spi_quad {
+		default_mux {
+			function = "spifunc";
 			groups = "spigrp";
 		};
 	};
