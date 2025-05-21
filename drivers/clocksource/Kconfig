@@ -733,4 +733,12 @@ config GOLDFISH_TIMER
 	help
 	  Support for the timer/counter of goldfish-rtc
 
+config RTS493XA_CLKSRC_TIMER
+	bool "Realtek clocksource timer driver"
+	depends on GENERIC_SCHED_CLOCK && ARM
+	select TIMER_PROBE
+	select TIMER_OF
+	help
+	  Use RTS XB2 timer0 as a clocksource and a clockevent
+
 endmenu
