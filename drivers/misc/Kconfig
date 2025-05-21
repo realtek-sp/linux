@@ -581,8 +581,7 @@ config RTS493XA_BUS_TIMER_TEST
 
 config RTS493X_DDRC
 	tristate "RTS493X DDR controller support"
-	select RTS493X_THERMAL
-	default y
+	depends on RTS493XA_THERMAL
 	help
 	  Say Y here to include support for Realtek RTS493x Series SoC DDR controller.
 

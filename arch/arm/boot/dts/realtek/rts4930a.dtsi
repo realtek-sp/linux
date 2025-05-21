@@ -140,3 +140,7 @@
 &trng {
 	status = "okay";
 };
+
+&ddrc {
+	status = "okay";
+};
