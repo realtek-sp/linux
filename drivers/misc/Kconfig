@@ -562,6 +562,23 @@ config TPS6594_PFSM
 	  This driver can also be built as a module.  If so, the module
 	  will be called tps6594-pfsm.
 
+config RTS493XA_BUS_TIMER
+	tristate "Realtek rts493xa bus timer"
+	help
+	  If you say yes here you get support for Realtek rts493xa bus timer device.
+
+	  This driver can also be built as a module.If so, the module will be
+	  called rts493xa_timer.
+
+	  If unused, say N.
+
+config RTS493XA_BUS_TIMER_TEST
+	bool "Realtek rts493xa bus timer test"
+	depends on RTS493XA_BUS_TIMER
+	default n
+	help
+	  Toogle gpio for Realtek rts493xa bus timer device test.
+
 config RTS493X_DDRC
 	tristate "RTS493X DDR controller support"
 	select RTS493X_THERMAL

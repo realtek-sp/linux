@@ -396,6 +396,7 @@
 		rts_timer0: rts_timer@18890000 {
 			compatible = "realtek,rts493xa-timer";
 			reg = <0x18890000 0x100>;
+			clock-frequency = <25000000>;
 			io-gpio = <&pinctrl 14 GPIO_ACTIVE_HIGH>;
 			interrupts = \
 				<GIC_SPI BSP_IRQ_TIMER0 IRQ_TYPE_LEVEL_HIGH>;
@@ -406,6 +407,7 @@
 		rts_timer1: rts_timer@18891000 {
 			compatible = "realtek,rts493xa-timer";
 			reg = <0x18891000 0x100>;
+			clock-frequency = <25000000>;
 			io-gpio = <&pinctrl 15 GPIO_ACTIVE_HIGH>;
 			interrupts = \
 				<GIC_SPI BSP_IRQ_TIMER1 IRQ_TYPE_LEVEL_HIGH>;
