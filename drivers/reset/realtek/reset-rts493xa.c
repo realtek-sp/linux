@@ -237,6 +237,14 @@ static int rts_sys_reset_deassert(struct reset_controller_dev *rcdev,
 		RTS_FRR_CLR(&regs->force_reg_reset_fwc, FORCE_FEPHY_RESET);
 		break;
 
+	case FORCE_RESET_I2C0:
+		RTS_FRR_CLR(&regs->force_reg_async_reset, FORCE_I2C0_CLK_ASYNC_RESET);
+		break;
+
+	case FORCE_RESET_I2C1:
+		RTS_FRR_CLR(&regs->force_reg_async_reset, FORCE_I2C1_CLK_ASYNC_RESET);
+		break;
+
 	default:
 		pr_info("ERROR: invalid deassert model %ld\n", id);
 		break;
@@ -279,6 +287,13 @@ static int rts_sys_reset_assert(struct reset_controller_dev *rcdev,
 	case FORCE_RESET_FEPHY:
 		RTS_FRR_SET(&regs->force_reg_reset_fwc, FORCE_FEPHY_RESET);
 		break;
+
+	case FORCE_RESET_I2C0:
+		RTS_FRR_SET(&regs->force_reg_async_reset, FORCE_I2C0_CLK_ASYNC_RESET);
+		break;
+
+	case FORCE_RESET_I2C1:
+		RTS_FRR_SET(&regs->force_reg_async_reset, FORCE_I2C1_CLK_ASYNC_RESET);
 
 	default:
 		pr_info("ERROR: invalid assert model %ld\n", id);
