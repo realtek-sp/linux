@@ -797,4 +797,34 @@ config CRYPTO_DEV_SA2UL
 source "drivers/crypto/aspeed/Kconfig"
 source "drivers/crypto/starfive/Kconfig"
 
+config CRYPTO_DEV_REALTEK
+	tristate "Support for Realtek crypto hw engine"
+	depends on !UML
+	help
+	  This driver allows you to utilize the crypto engine of Realtek.
+	  Supported AES/DES/3DES algorithms. The supported modes of operation
+	  include ECB, CBC, CTR, GCM and CCM, which conform to NIST sp800-38(a/c/d).
+
+	  To compile this driver as a module, choose M here: the module
+          will be called rts-crypto.
+
+config CRYPTO_DEV_REALTEK_SHA
+	tristate "Support for Realtek SHA hw engine"
+	depends on !UML
+	help
+	  This driver allows you to utilize the SHA engine of Realtek
+	  Supported sha256/hmac(sha256) algorithms.
+
+	  To compile this driver as a module, choose M here: the module
+          will be called rts-sha.
+
+config CRYPTO_DEV_REALTEK_RSA
+	tristate "Support for Realtek RSA hw engine"
+	depends on !UML
+	help
+	  This driver allows you to utilize the RSA engine of Realtek.
+
+	  To compile this driver as a module, choose M here: the module
+          will be called rts-rsa.
+
 endif # CRYPTO_HW

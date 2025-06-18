@@ -51,3 +51,6 @@ obj-y += hisilicon/
 obj-$(CONFIG_CRYPTO_DEV_AMLOGIC_GXL) += amlogic/
 obj-y += intel/
 obj-y += starfive/
+obj-$(CONFIG_CRYPTO_DEV_REALTEK) += rts_crypto.o
+obj-$(CONFIG_CRYPTO_DEV_REALTEK_SHA) += rts_sha.o
+obj-$(CONFIG_CRYPTO_DEV_REALTEK_RSA) += rts_rsa.o
