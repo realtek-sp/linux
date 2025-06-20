@@ -9,6 +9,13 @@
 		};
 	};
 
+	i2cpwm_default_mode: i2cpwm_default {
+		default_mux {
+			function = "i2cfunc";
+			groups = "i2cpwmgrp";
+		};
+	};
+
 	i2c1_default_mode: i2c1_default {
 		default_mux {
 			function = "i2cfunc";

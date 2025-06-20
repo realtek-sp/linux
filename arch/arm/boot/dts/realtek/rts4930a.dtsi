@@ -85,6 +85,7 @@
 };
 
 &i2c0 {
+	pinctrl-0 = <&i2cpwm_default_mode>;
 	status = "okay";
 };
 
