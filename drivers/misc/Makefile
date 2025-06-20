@@ -69,3 +69,4 @@ obj-$(CONFIG_TPS6594_ESM)	+= tps6594-esm.o
 obj-$(CONFIG_TPS6594_PFSM)	+= tps6594-pfsm.o
 obj-$(CONFIG_RTS493XA_BUS_TIMER)	+= rts493xa_timer.o
 obj-$(CONFIG_RTS493X_DDRC)	+= rts493x-ddrc.o
+obj-y				+= iomatrix/

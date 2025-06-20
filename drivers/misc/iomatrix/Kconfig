@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menu "IOMATRIX support"
+
+config RTS490XA_HUB
+	tristate "RTS490XA HUB support"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This enables support for RTS490XA HUB. Say Y here to use RTS490XA HUB driver to
+	  configure RTS490XA HUB device.
+
+endmenu
