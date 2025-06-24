@@ -119,7 +119,7 @@
 			};
 		};
 
-		target-port@2 {
+		target-port@4 {
 			mode = "smbus";
 			pullup = "enabled";
 			backend@0,0 {
@@ -128,7 +128,7 @@
 			};
 		};
 
-		target-port@3 {
+		target-port@5 {
 			mode = "smbus";
 			pullup = "enabled";
 			backend@0,0 {
