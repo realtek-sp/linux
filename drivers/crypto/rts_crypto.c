@@ -198,7 +198,14 @@ struct rts_aead_reqctx {
 	struct buf_table_mapinfo ad_mapinfo;
 };
 
+#ifdef CONFIG_RTS_OTP
 extern int rts_otp_load_aes_key(unsigned int k);
+#else
+static inline int rts_otp_load_aes_key(unsigned int k)
+{
+	return -ENODEV;
+}
+#endif
 
 static struct rts_crypto_data *rts_cdata;
 static dev_t devno = MKDEV(124, 0);
