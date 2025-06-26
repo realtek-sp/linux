@@ -1285,7 +1285,7 @@ static void rts_usb_req_ep0_get_status(struct rts_udc *rtsusb,
 					rts_is_epnstall(rtsusb->ep_out[epnum])
 					<< USB_ENDPOINT_HALT;
 		} else {
-			rts_set_cxstall(rtsusb);
+			rtsusb->ep0_data = 0;
 		}
 		break;
 	default:
