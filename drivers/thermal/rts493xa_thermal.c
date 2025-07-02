@@ -32,6 +32,8 @@
 #include <linux/delay.h>
 #include <linux/of_device.h>
 
+#include "thermal_core.h"
+
 #define SYS_TM_CTRL	   0x0
 #define SYS_TM_CFG0	   0x4
 #define SYS_TM_CFG1	   0x8
@@ -48,48 +50,17 @@
 #define SYS_TM_CT_INT_EN   0x34
 #define SYS_TM_CT_INT_FLAG 0x38
 
-#define RTS_HYSTERESIS 500
+#define RTS_MAX_TEMP 0x7cfff
+#define RTS_MIN_TEMP 0
 
-#define CENTIGRADE_TO_K(temp) (temp + 27315)
-#define K_TO_CENTIGRADE(temp) (temp - 27315)
-
-enum {
-	TYPE_RTS493XA = 1,
-
-	TYPE_FPGA = (1 << 16),
-};
-
-enum ddr_state {
-	DDR_STATUS_LOW,
-	DDR_STATUS_HIGH,
-};
-
-struct blocking_notifier_head ddrc_trigger;
-
-struct rts_trip_point {
-	unsigned long temp;
-	enum thermal_trip_type type;
-};
-
-struct rts_thsens_platform_data {
-	struct rts_trip_point trip_points[BITS_PER_TYPE(int) - 1];
-	int num_trips;
-};
+#define RTS_HYST_TEMP 500
 
 struct rts_thermal_zone {
-	struct thermal_zone_device *therm_dev;
-	struct delayed_work therm_work;
-	struct work_struct init_work;
-	struct rts_thsens_platform_data *trip_tab;
-	unsigned int cur_index;
 	void __iomem *base;
-	u32 thermal_k[18];
-	int devtype;
+	bool irq_enabled;
+	const struct rts_thermal_data *data;
+	struct thermal_zone_device *therm_dev;
 };
-
-static u32 actual_k[] = { 26815, 27315, 27815, 28315, 28815, 29315,
-			  29815, 30315, 30815, 31315, 31815, 32315,
-			  32815, 33315, 33815, 34315, 34815, 35315 };
 
 static inline uint32_t rts_thermal_reg_read(struct rts_thermal_zone *zone,
 					    uint32_t reg)
@@ -103,374 +74,190 @@ static inline void rts_thermal_reg_write(struct rts_thermal_zone *zone,
 	writel(val, zone->base + reg);
 }
 
-int thermal_event_register(struct notifier_block *nb)
+u32 temp2code(struct rts_thermal_zone *zone, u32 temp)
 {
-	return blocking_notifier_chain_register(&ddrc_trigger, nb);
-}
-EXPORT_SYMBOL(thermal_event_register);
-
-int thermal_event_unregister(struct notifier_block *nb)
-{
-	return blocking_notifier_chain_unregister(&ddrc_trigger, nb);
-}
-EXPORT_SYMBOL(thermal_event_unregister);
-
-u32 temp2code(struct rts_thermal_zone *zone, u32 actk)
-{
-	int i;
-	int x, x1, y1, x2, y2;
-	u32 thk;
-
-	for (i = 0; i < ARRAY_SIZE(actual_k) - 1; i++)
-		if (actk <= actual_k[i])
-			break;
-
-	if (i > 0)
-		i--;
-
-	x = actk;
-	x1 = actual_k[i];
-	y1 = zone->thermal_k[i];
-	x2 = actual_k[i + 1];
-	y2 = zone->thermal_k[i + 1];
-	thk = (x - x1) * (y2 - y1) / (x2 - x1) + y1;
-
-	thk = (thk - 27315) / 100 * 1024;
-
-	return thk;
+	return temp * 1024 / 1000;
 }
 
 u32 code2temp(struct rts_thermal_zone *zone, u32 code)
 {
-	int i;
-	int x, x1, y1, x2, y2;
-	u32 thk;
+	u32 temp;
 	s32 code_s32;
 
 	if (code & 0x40000) {
 		code_s32 = 0 - (s32)((~((code & 0x3ffff) - 1)) & 0x3ffff);
-		code_s32 = code_s32 / 1024 * 100 + 27315;
-		thk = code_s32;
+		temp = code_s32 * 1000 / 1024;
 	} else {
-		thk = code / 1024 * 100 + 27315;
+		temp = code * 1000 / 1024;
 	}
 
-	for (i = 0; i < ARRAY_SIZE(zone->thermal_k) - 1; i++)
-		if (thk <= zone->thermal_k[i])
-			break;
-
-	if (i > 0)
-		i--;
-
-	x = thk;
-	x1 = zone->thermal_k[i];
-	y1 = actual_k[i];
-	x2 = zone->thermal_k[i + 1];
-	y2 = actual_k[i + 1];
-
-	thk = (x - x1) * (y2 - y1) / (x2 - x1) + y1;
-
-	return thk;
+	return temp;
 }
 
-/* Callback to get current temperature */
-static int rts_sys_get_temp(struct thermal_zone_device *thermal, int *temp)
+static int rts_get_temp(struct thermal_zone_device *thermal, int *temp)
 {
-	struct rts_thermal_zone *pzone = thermal->devdata;
+	struct rts_thermal_zone *pzone = thermal_zone_device_priv(thermal);
 	unsigned long code = rts_thermal_reg_read(pzone, SYS_TM_OUT);
 
 	*temp = code2temp(pzone, code);
 
+	/*
+	 * FIXME: This is a temporary solution to disable the interrupt when the
+	 * temperature is below 0, because low threshold setting minimum value
+	 * is 0.
+	 */
+
+	if (*temp <= 0 && pzone->irq_enabled) {
+		rts_thermal_reg_write(pzone, SYS_TM_CT_INT_EN, 0);
+		pzone->irq_enabled = false;
+	}
+
+	if (*temp >= 5000 && !pzone->irq_enabled) {
+		rts_thermal_reg_write(pzone, SYS_TM_CT_INT_FLAG, 1);
+		rts_thermal_reg_write(pzone, SYS_TM_CT_INT_EN, 1);
+		pzone->irq_enabled = true;
+	}
+
 	return 0;
 }
 
-/* Callback to get critical trip point temperature */
-static int rts_sys_get_crit_temp(struct thermal_zone_device *thermal, int *temp)
+static int rts_set_trips(struct thermal_zone_device *thermal, int low, int high)
 {
-	struct rts_thermal_zone *pzone = thermal->devdata;
-	struct rts_thsens_platform_data *ptrips = pzone->trip_tab;
-	int i;
-
-	for (i = ptrips->num_trips - 1; i >= 0; i--) {
-		if (ptrips->trip_points[i].type == THERMAL_TRIP_CRITICAL) {
-			*temp = ptrips->trip_points[i].temp;
-			return 0;
-		}
-	}
-
-	return -EINVAL;
-}
-
-static struct thermal_zone_device_ops thdev_ops = {
-	.get_temp = rts_sys_get_temp,
-	.get_crit_temp = rts_sys_get_crit_temp,
-};
-
-static void rts_thermal_update_config(struct rts_thermal_zone *pzone,
-				      unsigned int idx)
-{
+	struct rts_thermal_zone *pzone = thermal_zone_device_priv(thermal);
 	unsigned int dft_low, dft_high;
 
-	pzone->cur_index = idx;
+	dft_low = max(low, RTS_MIN_TEMP + RTS_HYST_TEMP) - RTS_HYST_TEMP;
+	dft_high = min(high, RTS_MAX_TEMP - RTS_HYST_TEMP) + RTS_HYST_TEMP;
 
-	dft_low = temp2code(pzone, pzone->trip_tab->trip_points[idx].temp);
-	dft_high = temp2code(pzone, pzone->trip_tab->trip_points[idx + 1].temp);
-
-	dft_low = (dft_low > RTS_HYSTERESIS) ? (dft_low - RTS_HYSTERESIS) : 0;
-	dft_high += RTS_HYSTERESIS;
+	dft_low = temp2code(pzone, dft_low);
+	dft_high = temp2code(pzone, dft_high);
 
 	rts_thermal_reg_write(pzone, SYS_TM_CT_LOW, dft_low);
 	rts_thermal_reg_write(pzone, SYS_TM_CT_HIGH, dft_high);
+
+	if (!pzone->irq_enabled) {
+		rts_thermal_reg_write(pzone, SYS_TM_CT_INT_FLAG, 1);
+		rts_thermal_reg_write(pzone, SYS_TM_CT_INT_EN, 1);
+		pzone->irq_enabled = true;
+	}
+
+	return 0;
+}
+
+static struct thermal_zone_device_ops rts_thermal_ops = {
+	.get_temp = rts_get_temp,
+	.set_trips = rts_set_trips,
+};
+
+static void rts_enable_thermal(struct rts_thermal_zone *pzone)
+{
+	rts_thermal_reg_write(pzone, SYS_TM_CTRL, 0x103);
+	usleep_range(100, 200);
+	rts_thermal_reg_write(pzone, SYS_TM_CTRL, 0x107);
+	usleep_range(100, 200);
+	rts_thermal_reg_write(pzone, SYS_TM_CTRL, 0x1bf);
+	rts_thermal_reg_write(pzone, SYS_TM_CFG2, 0x181);
+	usleep_range(5000, 10000);
+
+	rts_thermal_reg_write(pzone, SYS_TM_CT_LOW, RTS_MIN_TEMP);
+	rts_thermal_reg_write(pzone, SYS_TM_CT_HIGH, RTS_MAX_TEMP);
+}
+
+static void rts_disable_thermal(struct rts_thermal_zone *pzone)
+{
+	clear_bit(0, pzone->base + SYS_TM_CTRL);
+	rts_thermal_reg_write(pzone, SYS_TM_CT_INT_EN, 0);
 	rts_thermal_reg_write(pzone, SYS_TM_CT_INT_FLAG, 1);
 }
 
 static irqreturn_t rts_thermal_irq_handler(int irq, void *irq_data)
 {
 	struct rts_thermal_zone *pzone = irq_data;
-	struct rts_thsens_platform_data *ptrips = pzone->trip_tab;
-	unsigned int idx = pzone->cur_index;
-	unsigned int code;
-	int flags;
-	u32 highc, lowc;
+	int flag;
 
-	flags = rts_thermal_reg_read(pzone, SYS_TM_CT_INT_FLAG);
-	if (flags == 0)
+	flag = rts_thermal_reg_read(pzone, SYS_TM_CT_INT_FLAG);
+	if (flag == 0)
 		return IRQ_NONE;
 
-	flags = rts_thermal_reg_read(pzone, SYS_TM_CT_INT_EN);
-	if (flags == 0)
-		return IRQ_NONE;
+	thermal_zone_device_update(pzone->therm_dev, THERMAL_EVENT_UNSPECIFIED);
 
-	rts_thermal_reg_write(pzone, SYS_TM_CT_INT_EN, 0);
 	rts_thermal_reg_write(pzone, SYS_TM_CT_INT_FLAG, 1);
-
-	if (idx < ptrips->num_trips - 1) {
-		code = rts_thermal_reg_read(pzone, SYS_TM_OUT);
-
-		dev_dbg(&pzone->therm_dev->device, "current code is 0x%x\n",
-			code);
-
-		lowc = pzone->trip_tab->trip_points[idx].temp;
-		highc = pzone->trip_tab->trip_points[idx + 1].temp;
-
-		if (code < lowc) {
-			if (idx > 0)
-				idx -= 1;
-		} else if (code > highc) {
-			if (idx < ptrips->num_trips - 2)
-				idx++;
-		}
-
-		rts_thermal_update_config(pzone, idx);
-
-		dev_dbg(&pzone->therm_dev->device, "thermal set to idx %d\n",
-			idx);
-	}
-
-	schedule_delayed_work(&pzone->therm_work, msecs_to_jiffies(300));
 
 	return IRQ_HANDLED;
 }
 
-static void rts_ddrc_notify(struct rts_thermal_zone *pzone)
-{
-	int events;
-	unsigned long code = rts_thermal_reg_read(pzone, SYS_TM_OUT);
-
-	code = code2temp(pzone, code);
-
-	if (code < pzone->trip_tab->trip_points[0].temp)
-		events = DDR_STATUS_LOW;
-	else if (code > pzone->trip_tab->trip_points[1].temp)
-		events = DDR_STATUS_HIGH;
-	else
-		return;
-
-	blocking_notifier_call_chain(&ddrc_trigger, events, NULL);
-}
-
-static void rts_thermal_work(struct work_struct *work)
-{
-	struct rts_thermal_zone *pzone;
-
-	pzone = container_of((struct delayed_work *)work,
-			     struct rts_thermal_zone, therm_work);
-
-	thermal_zone_device_update(pzone->therm_dev, THERMAL_EVENT_UNSPECIFIED);
-	dev_dbg(&pzone->therm_dev->device, "thermal work finished\n");
-
-	rts_ddrc_notify(pzone);
-
-	rts_thermal_reg_write(pzone, SYS_TM_CT_INT_EN, 1);
-}
-
-static void rts_init_thermal(struct work_struct *work)
-{
-	struct rts_thermal_zone *pzone;
-
-	pzone = container_of(work, struct rts_thermal_zone, init_work);
-
-	rts_thermal_reg_write(pzone, SYS_TM_CTRL, 0x103);
-	udelay(100);
-	rts_thermal_reg_write(pzone, SYS_TM_CTRL, 0x107);
-	udelay(100);
-	rts_thermal_reg_write(pzone, SYS_TM_CTRL, 0x1bf);
-
-	rts_thermal_reg_write(pzone, SYS_TM_CFG2, 0x181);
-
-	rts_thermal_update_config(pzone, 0);
-	rts_thermal_reg_write(pzone, SYS_TM_CT_INT_EN, 1);
-}
-
-static const struct of_device_id rts493xa_tm_match[] = {
-	{
-		.compatible = "realtek,rts493xa-thermal",
-		.data = (void *)(TYPE_RTS493XA),
-	},
-	{}
-};
-MODULE_DEVICE_TABLE(of, rts493xa_tm_match);
-
-static struct rts_thsens_platform_data *
-rts_thermal_parse_dt(struct platform_device *pdev)
-{
-	struct rts_thsens_platform_data *ptrips;
-	struct device_node *np = pdev->dev.of_node;
-	char prop_name[32];
-	s32 tmp_data;
-	int i;
-
-	ptrips = devm_kzalloc(&pdev->dev, sizeof(*ptrips), GFP_KERNEL);
-	if (!ptrips)
-		return NULL;
-
-	if (of_property_read_u32(np, "num-trips", &tmp_data))
-		goto err_parse_dt;
-	if (tmp_data > (BITS_PER_TYPE(int) - 1))
-		goto err_parse_dt;
-	ptrips->num_trips = tmp_data;
-
-	if (ptrips->num_trips == 0) {
-		ptrips->trip_points[0].temp = CENTIGRADE_TO_K(0);
-		ptrips->trip_points[0].type = THERMAL_TRIP_HOT;
-		ptrips->trip_points[1].temp = CENTIGRADE_TO_K(8000);
-		ptrips->trip_points[1].type = THERMAL_TRIP_HOT;
-	} else {
-		for (i = 0; i < ptrips->num_trips; i++) {
-			sprintf(prop_name, "trip%d-temp", i);
-
-			if (of_property_read_s32(np, prop_name, &tmp_data))
-				goto err_parse_dt;
-
-			ptrips->trip_points[i].temp = CENTIGRADE_TO_K(tmp_data);
-			ptrips->trip_points[i].type = THERMAL_TRIP_HOT;
-		}
-	}
-	return ptrips;
-
-err_parse_dt:
-	dev_err(&pdev->dev, "Parsing device tree data error.\n");
-	return NULL;
-}
-
 static int rts_thermal_probe(struct platform_device *pdev)
 {
-	struct rts_thermal_zone *pzone = NULL;
-	struct resource *mem;
-	struct rts_thsens_platform_data *ptrips;
-	int irq;
-	int ret;
-	const struct of_device_id *of_id;
-
-	of_id = of_match_device(rts493xa_tm_match, &pdev->dev);
-	if (!of_id)
-		return -ENODEV;
+	struct rts_thermal_zone *pzone;
+	int irq, ret;
 
 	pzone = devm_kzalloc(&pdev->dev, sizeof(*pzone), GFP_KERNEL);
 	if (!pzone)
 		return -ENOMEM;
 
-	pzone->devtype = (int)of_id->data;
-
-	of_property_read_u32_array(pdev->dev.of_node, "thermal_k",
-				   pzone->thermal_k,
-				   ARRAY_SIZE(pzone->thermal_k));
-	ptrips = rts_thermal_parse_dt(pdev);
-	if (!ptrips)
-		return -EINVAL;
-
-	pzone->trip_tab = ptrips;
-
-	INIT_DELAYED_WORK(&pzone->therm_work, rts_thermal_work);
-	INIT_WORK(&pzone->init_work, rts_init_thermal);
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!mem) {
-		dev_err(&pdev->dev, "no mem resource?\n");
-		return -EINVAL;
-	}
-
-	BLOCKING_INIT_NOTIFIER_HEAD(&ddrc_trigger);
-
-	pzone->base = devm_ioremap_resource(&pdev->dev, mem);
+	pzone->base = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
 	if (IS_ERR(pzone->base))
 		return PTR_ERR(pzone->base);
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		dev_err(&pdev->dev, "Get IRQ failed.\n");
-		ret = irq;
-		goto failed;
+		return irq;
 	}
-	ret = devm_request_irq(&pdev->dev, irq, rts_thermal_irq_handler,
-			       IRQF_SHARED, "rts_thermal", pzone);
 
-	pzone->therm_dev = thermal_tripless_zone_device_register(
-		"rts_thermal_zone", pzone, &thdev_ops, NULL);
-
-	if (IS_ERR(pzone->therm_dev)) {
-		dev_err(&pdev->dev, "Register thermal zone device failed.\n");
-		ret = PTR_ERR(pzone->therm_dev);
-		goto failed;
-	}
-	dev_info(&pzone->therm_dev->device,
-		 "Thermal zone device registered.\n");
+	rts_enable_thermal(pzone);
 
 	platform_set_drvdata(pdev, pzone);
 
-	schedule_work(&pzone->init_work);
+	pzone->therm_dev = devm_thermal_of_zone_register(&pdev->dev, 0, pzone,
+							 &rts_thermal_ops);
+	if (IS_ERR(pzone->therm_dev)) {
+		dev_err(&pdev->dev, "Register thermal zone sensor failed.\n");
+		ret = PTR_ERR(pzone->therm_dev);
+		goto failed;
+	}
+
+	if (!strcmp(pzone->therm_dev->type, "ddrc-thermal")) {
+		thermal_zone_device_set_policy(pzone->therm_dev, "bang_bang");
+	}
+
+	ret = devm_request_threaded_irq(&pdev->dev, irq, NULL,
+					rts_thermal_irq_handler, IRQF_ONESHOT,
+					"rts_thermal", pzone);
+	if (ret) {
+		dev_err(&pdev->dev, "Request IRQ failed.\n");
+		return ret;
+	}
+
+	dev_info(&pdev->dev, "Thermal zone device registered.\n");
 failed:
 	return ret;
 }
 
-static int rts_thermal_remove(struct platform_device *pdev)
+static void rts_thermal_remove(struct platform_device *pdev)
 {
 	struct rts_thermal_zone *pzone = platform_get_drvdata(pdev);
 
-	thermal_zone_device_unregister(pzone->therm_dev);
-	cancel_delayed_work_sync(&pzone->therm_work);
-
-	return 0;
+	rts_disable_thermal(pzone);
 }
+
+static const struct of_device_id rts_tm_match[] = {
+	{
+		.compatible = "realtek,rts493xa-thermal",
+	},
+	{}
+};
+MODULE_DEVICE_TABLE(of, rts_tm_match);
 
 static struct platform_driver rts_thermal_driver = {
 	.driver = {
-		.name = "rts493xa-thermal",
-		.of_match_table = rts493xa_tm_match,
+		.name = "rts-thermal",
+		.of_match_table = rts_tm_match,
 	},
 	.probe = rts_thermal_probe,
-	.remove = rts_thermal_remove,
+	.remove_new = rts_thermal_remove,
 };
 
-static int __init rts_thermal_init(void)
-{
-	return platform_driver_register(&rts_thermal_driver);
-}
-fs_initcall(rts_thermal_init);
-
-static void __exit rts_thermal_exit(void)
-{
-	platform_driver_unregister(&rts_thermal_driver);
-}
-module_exit(rts_thermal_exit);
+module_platform_driver(rts_thermal_driver);
 
 MODULE_LICENSE("GPL v2");
