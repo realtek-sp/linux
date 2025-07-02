@@ -11,6 +11,7 @@
 #include <dt-bindings/interrupt-controller/realtek,rts493xa.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/i2c/i2c.h>
+#include <dt-bindings/thermal/thermal.h>
 
 / {
 	compatible = "realtek,rts493xa";
@@ -104,6 +105,7 @@
 		ddrc: ddrc@18010000 {
 			compatible = "realtek,rts493xa-ddrc";
 			reg = <0x18010000 0x100>, <0x18080000 0x100>;
+			#cooling-cells = <2>;
 			status = "disabled";
 		};
 
@@ -376,12 +378,7 @@
 			interrupts = \
 				<GIC_SPI BSP_IRQ_THERMAL IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-parent = <&gic>;
-			num-trips = <2>;
-			trip0-temp = <7500>;
-			trip1-temp = <8500>;
-			thermal_k = /bits/ 32 <26815 27315 27815 28315 28815
-				29315 29815 30315 30815 31315 31815 32315 32815
-				33315 33815 34315 34815 35315>;
+			#thermal-sensor-cells = <0>;
 			status = "disabled";
 		};
 
@@ -524,6 +521,31 @@
 			ta-nums = <4>;
 			mdc-gpio = <&pinctrl 2 GPIO_ACTIVE_HIGH>;
 			mdio-gpio = <&pinctrl 3 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	thermal-zones {
+		ddrc-thermal {
+			polling-delay-passive = <3000>;
+			polling-delay = <5000>;
+			thermal-sensors = <&thermal>;
+
+			trips {
+				ddr_hot: trip0 {
+					temperature = <85000>;
+					hysteresis = <10000>;
+					type = "passive";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&ddr_hot>;
+					cooling-device = \
+					<&ddrc THERMAL_NO_LIMIT
+						THERMAL_NO_LIMIT>;
+				};
+			};
 		};
 	};
 };
