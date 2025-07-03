@@ -182,7 +182,8 @@ static int saradc_probe(struct platform_device *pdev)
 		}
 	}
 
-	adc->hwmon_dev = hwmon_device_register(&pdev->dev);
+	adc->hwmon_dev = hwmon_device_register_with_groups(
+		&pdev->dev, "rts493xa_saradc", NULL, NULL);
 	if (IS_ERR(adc->hwmon_dev)) {
 		dev_err(&pdev->dev, "hwmon_device_register failed.\n");
 		status = PTR_ERR(adc->hwmon_dev);
