@@ -76,6 +76,11 @@
 #define TPn_ENABLE(n)	       BIT(n)
 
 #define RTS490XA_HUB_DEV_CONF	 0x13
+#define TARGET_PORT_VCCIO_PWRGD_CTRL_MASK BIT(3)
+
+#define RTS490XA_DPAD_POWER_BUFFER_PAGE 0x7C
+#define RTS490XA_DPAD_POWER_DISABLE	0x80
+
 #define RTS490XA_HUB_IO_STRENGTH 0x14
 #define TP0145_IO_STRENGTH_MASK	 GENMASK(1, 0)
 #define TP0145_IO_STRENGTH(x)	 (((x) << 0) & TP0145_IO_STRENGTH_MASK)
@@ -763,6 +768,29 @@ static int rts490xa_hub_hw_configure_io_strength(struct device *dev)
 				  mask_all, val_all);
 }
 
+static int disable_target_port_vccio_pwrgd_ctrl(struct device *dev)
+{
+	struct rts490xa_hub *priv = dev_get_drvdata(dev);
+	int ret;
+
+	ret = regmap_write(priv->regmap, RTS490XA_HUB_PAGE_PTR,
+			   RTS490XA_DPAD_POWER_BUFFER_PAGE);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(priv->regmap, RTS490XA_DPAD_POWER_DISABLE, 1);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(priv->regmap, RTS490XA_HUB_PAGE_PTR, 0x00);
+	if (ret)
+		return ret;
+
+	ret = regmap_update_bits(priv->regmap, RTS490XA_HUB_DEV_CONF,
+				 TARGET_PORT_VCCIO_PWRGD_CTRL_MASK, 0);
+	return ret;
+}
+
 static int rts490xa_hub_hw_configure_tp(struct device *dev)
 {
 	struct rts490xa_hub *priv = dev_get_drvdata(dev);
@@ -808,6 +836,12 @@ static int rts490xa_hub_hw_configure_tp(struct device *dev)
 				 smbus_mask, smbus_val);
 	if (ret)
 		return ret;
+
+	if (smbus_val) {
+		ret = disable_target_port_vccio_pwrgd_ctrl(dev);
+		if (ret)
+			return ret;
+	}
 
 	ret = regmap_update_bits(priv->regmap, RTS490XA_HUB_TP_PULLUP_EN,
 				 pullup_mask, pullup_val);
