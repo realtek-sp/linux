@@ -4,10 +4,7 @@
 $id: http://devicetree.org/schemas/dma/realtek,rts-dma.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Realtek DMA Controller Device Tree Bindings For rts493xa Series
-
-maintainers:
-  - todd_jin <todd_jin@realsil.com.cn>
+title: Realtek DMA Controller Device Tree Bindings for RTS493xA Series
 
 allOf:
   - $ref: "dma-controller.yaml#"

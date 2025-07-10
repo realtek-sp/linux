@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-2.0
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/usb/realtek,rts-saradc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek SARADC Device Tree Bindings for RTS493xA Series
+
+properties:
+  compatible:
+    contains:
+      const: realtek,rts493xa-saradc
+
+  reg:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: true
+
+examples:
+  - |
+    saradc: saradc@18840000 {
+      compatible = "realtek,rts493xa-saradc";
+      reg = <0x18840000 0x10000>;
+    };
+
+...

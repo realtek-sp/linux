@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: GPL-2.0
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/usb/realtek,rts-pinctrl.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek Pin Controller System Device Tree Bindings for RTS493xA Series
+
+properties:
+  compatible:
+    contains:
+      const: realtek,rts493xa-pinctrl
+
+  reg:
+    maxItems: 4
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+patternProperties:
+  '^.*$':
+    if:
+      type: object
+    then:
+      patternProperties:
+        "^function|groups$":
+          allOf:
+            - $ref: "/schemas/types.yaml#/definitions/string"
+
+additionalProperties: true
+
+examples:
+  - |
+    pinctrl: pinctrl@18800000 {
+      #address-cells = <1>;
+      #size-cells = <1>;
+      ranges;
+      compatible = "realtek,rts493xa-pinctrl";
+      reg = <0x18800000 0x10000 0x18300000 0x100000
+				0x18700000 0x100000 0x185000d4 0x4>;
+      interrupts = <GIC_SPI BSP_IRQ_GPIO IRQ_TYPE_LEVEL_HIGH>;
+      interrupt-parent = <&gic>;
+      pwm-etnled-mapping = /bits/ 32 <0 1 2 0>;
+      gpio-controller;
+      #gpio-cells = <2>;
+      ngpios = <89>;
+      status = "disabled";
+
+      i2c0_default_mode: i2c0_default {
+        default_mux {
+          function = "i2cfunc";
+          groups = "i2c0grp";
+        };
+      };
+    };
+...

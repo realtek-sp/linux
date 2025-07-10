@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: GPL-2.0
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mtd/realtek,rts-spic.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek Flash Controller Device Tree Bindings for RTS493xA Series
+
+properties:
+  "#address-cells": true
+  "#size-cells": true
+
+  compatible:
+    enum:
+      - realtek,rts493xa-quadspi
+
+  reg:
+    minItems: 1
+    maxItems: 2
+
+  clocks:
+    items:
+      - description: Bus Clock
+
+  clock-names:
+    items:
+      - const: spi_ck
+
+  interrupts:
+    maxItems: 1
+
+  pinctrl-names:
+      items:
+      - const: default
+      - const: quad
+
+  spi-transfer-channel:
+    enum:
+      - normal
+      - fast
+      - dual
+      - quad
+      - dtr
+      - qpi
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - clocks
+  - clock-names
+
+additionalProperties: true
+
+examples:
+  - |
+    spi0: spic@18030000 {
+      compatible = "realtek,rts493xa-quadspi";
+      #address-cells = <1>;
+      #size-cells = <0>;
+      reg = <0x18030000 0x10000>, <0x18860080 0x28>;
+      clocks = <&clks 0x2d>;
+      clock-names = "spi_ck";
+      spi-deactivate-delay = <0>;
+      spi-frequency = <30000000>;
+      spi-transfer-channel = "dual";
+      interrupts = <0x0 0x20 0x4>;
+      pinctrl-names = "default", "quad";
+    };
+...

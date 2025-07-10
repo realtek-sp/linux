@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-2.0
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/usb/realtek,rts-usb-phy.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek USB Phy Device Tree Bindings for RTS493xA Series
+
+allOf:
+  - $ref: "usb-hcd.yaml"
+
+properties:
+  compatible:
+    contains:
+      const: realtek,rts493xa-usbphy
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  pinctrl-names:
+    enum:
+      - init
+      - sleep
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - pinctrl-names
+
+additionalProperties: false
+
+examples:
+  - |
+    usb_phy: usb_phy@18140000 {
+      compatible = "realtek,rts493xa-usbphy";
+      reg = <0x18140000 0x1000>;
+      interrupts =	<0x0 0x13 0x4>;
+      pinctrl-names = "init","sleep";
+      pinctrl-0 = <&usbd_init_mode>;
+      pinctrl-1 = <&usbd_default_mode>;
+      host-sens-obj = <7>;
+    };
+
+...

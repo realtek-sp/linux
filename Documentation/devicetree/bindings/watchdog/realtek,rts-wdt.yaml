@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-2.0
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/watchdog/realtek,rts-wdt.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek Watchdog Device Tree Bindings for RTS493xA Series
+
+allOf:
+  - $ref: "watchdog.yaml#"
+
+properties:
+  compatible:
+    contains:
+      const: realtek,rts493xa-wdt
+
+  reg:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: true
+
+examples:
+  - |
+    watchdog: watchdog@188da000 {
+      compatible = "realtek,rts493xa-wdt";
+      reg = <0x188da000 0x10000>;
+    };
+
+...
