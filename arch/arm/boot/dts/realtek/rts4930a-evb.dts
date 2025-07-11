@@ -73,11 +73,6 @@
 	status = "okay";
 };
 
-&uart2 {
-	status = "okay";
-	current-speed = <57600>;
-};
-
 &i2c0 {
 	status = "okay";
 

@@ -9,13 +9,6 @@
 		};
 	};
 
-	i2cpwm_default_mode: i2cpwm_default {
-		default_mux {
-			function = "i2cfunc";
-			groups = "i2cpwmgrp";
-		};
-	};
-
 	i2c1_default_mode: i2c1_default {
 		default_mux {
 			function = "i2cfunc";
@@ -37,26 +30,24 @@
 		};
 	};
 
-	uart2_default_mode: uart2_default {
+	uart2usb_default_mode: uartusb_default {
 		default_mux {
 			function = "uartfunc";
-			groups = "uart2grp";
+			groups = "uart2usbdgrp";
 		};
 	};
 
 	sdhc0_default_mode: sdhc0_default {
 		default_mux {
 			function = "sdio0func";
-			groups = "sdio0grp", "sdio0cdgrp",
-				"sdio0wpgrp";
+			groups = "sdio0grp", "sdio0cdgrp";
 		};
 	};
 
 	sdhc0_pullup_mode: sdhc0_pullup {
 		default_mux {
 			function = "sdio0func";
-			groups = "sdio0grp", "sdio0cdgrp",
-				"sdio0wpgrp";
+			groups = "sdio0grp", "sdio0cdgrp";
 		};
 		pullup_cfg0 {
 			pins = "SDIO0_CMD", "SDIO0_DATA3",
@@ -66,7 +57,7 @@
 			drive-strength = <8>;
 		};
 		pullup_cfg1 {
-			pins = "SDIO0_CD", "SDIO0_WP";
+			pins = "SDIO0_CD";
 			bias-pull-up;
 			drive-strength = <4>;
 		};
@@ -80,17 +71,11 @@
 	sdhc0_pulldown_mode: sdhc0_pulldown {
 		default_mux {
 			function = "sdio0func";
-			groups = "sdio0grp", "sdio0cdgrp",
-				"sdio0wpgrp";
+			groups = "sdio0grp", "sdio0cdgrp";
 		};
 		pulldown_cfg0 {
 			pins = "SDIO0_CD";
 			bias-pull-up;
-			drive-strength = <4>;
-		};
-		pulldown_cfg1 {
-			pins = "SDIO0_WP";
-			bias-pull-down;
 			drive-strength = <4>;
 		};
 		pulldown_cfg2 {
@@ -105,58 +90,37 @@
 	sdhc1_default_mode: sdhc1_default {
 		default_mux {
 			function = "sdio1func";
-			groups = "sdio1grp", "sdio1cdgrp",
-				"sdio1wpgrp";
+			groups = "sdio1grp";
 		};
 	};
 
 	sdhc1_pullup_mode: sdhc1_pullup {
 		default_mux {
 			function = "sdio1func";
-			groups = "sdio1grp", "sdio1cdgrp",
-				"sdio1wpgrp";
+			groups = "sdio1grp";
 		};
 		pullup_cfg0 {
-			pins = "SDIO1_CMD", "SDIO1_DATA3",
-				"SDIO1_DATA2", "SDIO1_DATA1",
-				"SDIO1_DATA0";
+			pins = "GPIO8",
+				"SDIO1_DATA0",
+				"SDIO1_DATA2",
+				"SDIO1_DATA3",
+				"SDIO1_CMD";
 			bias-pull-up;
-			drive-strength = <8>;
-		};
-		pullup_cfg1 {
-			pins = "SDIO1_CD", "SDIO1_WP";
-			bias-pull-up;
-			drive-strength = <4>;
-		};
-		pullup_cfg2 {
-			pins = "SDIO1_CLK";
-			bias-pull-down;
-			drive-strength = <8>;
 		};
 	};
 
 	sdhc1_pulldown_mode: sdhc1_pulldown {
 		default_mux {
 			function = "sdio1func";
-			groups = "sdio1grp", "sdio1cdgrp",
-				"sdio1wpgrp";
-		};
-		pulldown_cfg0 {
-			pins = "SDIO1_CD";
-			bias-pull-up;
-			drive-strength = <4>;
-		};
-		pulldown_cfg1 {
-			pins = "SDIO1_WP";
-			bias-pull-down;
-			drive-strength = <4>;
+			groups = "sdio1grp";
 		};
 		pulldown_cfg2 {
-			pins = "SDIO1_CMD", "SDIO1_DATA3",
-				"SDIO1_DATA2", "SDIO1_DATA1",
-				"SDIO1_DATA0", "SDIO1_CLK";
+			pins = "GPIO8",
+				"SDIO1_DATA0",
+				"SDIO1_DATA2",
+				"SDIO1_DATA3",
+				"SDIO1_CMD";
 			bias-pull-down;
-			drive-strength = <8>;
 		};
 	};
 
@@ -183,8 +147,7 @@
 	pwm_default_mode: pwm_default {
 		default_mux {
 			function = "pwmfunc";
-			groups = "pwm0grp","pwm1grp",
-				"pwm2grp","pwm3grp";
+			groups = "pwm0grp","pwm1grp";
 		};
 	};
 
@@ -215,7 +178,7 @@
 			groups = "saradc0grp";
 		};
 		default_cfg {
-			pins = "CH_SAR_PAD0";
+			pins = "SAR_ADC0";
 			bias-disable;
 		};
 	};

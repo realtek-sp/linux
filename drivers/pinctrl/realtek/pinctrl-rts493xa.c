@@ -200,21 +200,6 @@
 #define PAD_V18_EN	       0x0298
 #define PWM_LED_SEL	       0x02a0
 
-enum {
-	GPIO_FUNC_SELECT,
-	SDIO0_FUNC_SELECT,
-	SDIO1_FUNC_SELECT,
-	UART_FUNC_SELECT,
-	PWM_FUNC_SELECT,
-	USBD_FUNC_SELECT,
-	ETNLED_FUNC_SELECT,
-	USBHST_FUNC_SELECT,
-	SARADC_FUNC_SELECT,
-	SSI_FUNC_SELECT,
-	I2C_FUNC_SELECT,
-	SPI_FUNC_SELECT,
-};
-
 #define RTS_PINRANGE(a, b, c) { .gpio_base = a, .pin_base = b, .pins = c }
 
 #define RTS_GETFIELD(val, width, offset) ((val >> offset) & ((1 << width) - 1))
@@ -222,8 +207,8 @@ enum {
 	((reg & (~(((1 << width) - 1) << offset))) | \
 	 ((field & ((1 << width) - 1)) << offset))
 
-#define RTS_SOC_HW_ID(type)	((int)(type) & 0xff)
-#define RTS_MAX_NGPIO		89
+#define RTS_SOC_HW_ID(type) ((int)(type) & 0xff)
+#define RTS_MAX_NGPIO	    89
 
 enum {
 	TYPE_RTS493XA = 1,
@@ -325,99 +310,42 @@ static struct lock_class_key gpio_lock_class;
 static struct lock_class_key gpio_request_class;
 
 static struct pinctrl_pin_desc rts_gpio_pins[] = {
-	PINCTRL_PIN(0, "GPIO0"),
-	PINCTRL_PIN(1, "GPIO1"),
-	PINCTRL_PIN(2, "GPIO2"),
-	PINCTRL_PIN(3, "GPIO3"),
-	PINCTRL_PIN(4, "GPIO4"),
-	PINCTRL_PIN(5, "GPIO5"),
-	PINCTRL_PIN(6, "GPIO6"),
-	PINCTRL_PIN(7, "GPIO7"),
-	PINCTRL_PIN(8, "GPIO8"),
-	PINCTRL_PIN(9, "GPIO9"),
-	PINCTRL_PIN(10, "GPIO10"),
-	PINCTRL_PIN(11, "GPIO11"),
-	PINCTRL_PIN(12, "GPIO12"),
-	PINCTRL_PIN(13, "GPIO13"),
-	PINCTRL_PIN(14, "GPIO14"),
-	PINCTRL_PIN(15, "GPIO15"),
-	PINCTRL_PIN(16, "UART0RXD"),
-	PINCTRL_PIN(17, "UART0TXD"),
-	PINCTRL_PIN(18, "UART0RTS"),
-	PINCTRL_PIN(19, "UART0CTS"),
-	PINCTRL_PIN(20, "UART1RXD"),
-	PINCTRL_PIN(21, "UART1TXD"),
-	PINCTRL_PIN(22, "UART2RXD"),
-	PINCTRL_PIN(23, "UART2TXD"),
-	PINCTRL_PIN(24, "UART2RTS"),
-	PINCTRL_PIN(25, "UART2CTS"),
-	PINCTRL_PIN(26, "PWMGPIO0"),
-	PINCTRL_PIN(27, "PWMGPIO1"),
-	PINCTRL_PIN(28, "PWMGPIO2"),
-	PINCTRL_PIN(29, "PWMGPIO3"),
-	PINCTRL_PIN(30, "I2CSCL"),
-	PINCTRL_PIN(31, "I2CSDA"),
-	PINCTRL_PIN(32, "SDIO0_CMD"),
-	PINCTRL_PIN(33, "SDIO0_DATA0"),
-	PINCTRL_PIN(34, "SDIO0_DATA1"),
-	PINCTRL_PIN(35, "SDIO0_DATA2"),
-	PINCTRL_PIN(36, "SDIO0_DATA3"),
-	PINCTRL_PIN(37, "SDIO0_CLK"),
-	PINCTRL_PIN(38, "SDIO0_WP"),
-	PINCTRL_PIN(39, "SDIO0_CD"),
-	PINCTRL_PIN(40, "SDIO1_CMD"),
-	PINCTRL_PIN(41, "SDIO1_DATA0"),
-	PINCTRL_PIN(42, "SDIO1_DATA1"),
-	PINCTRL_PIN(43, "SDIO1_DATA2"),
-	PINCTRL_PIN(44, "SDIO1_DATA3"),
-	PINCTRL_PIN(45, "SDIO1_CLK"),
-	PINCTRL_PIN(46, "SDIO1_WP"),
-	PINCTRL_PIN(47, "SDIO1_CD"),
-	PINCTRL_PIN(48, "PAD_SSOR_PIXDIN_EXT_0"),
-	PINCTRL_PIN(49, "PAD_SSOR_PIXDIN_EXT_1"),
-	PINCTRL_PIN(50, "PAD_SSOR_PIXDIN_0"),
-	PINCTRL_PIN(51, "PAD_SSOR_PIXDIN_1"),
-	PINCTRL_PIN(52, "PAD_SSOR_PIXDIN_2"),
-	PINCTRL_PIN(53, "PAD_SSOR_PIXDIN_3"),
-	PINCTRL_PIN(54, "PAD_SSOR_PIXDIN_6"),
-	PINCTRL_PIN(55, "PAD_SSOR_PIXDIN_7"),
-	PINCTRL_PIN(56, "PAD_SSOR_PIXDIN_8"),
-	PINCTRL_PIN(57, "PAD_SSOR_PIXDIN_9"),
-	PINCTRL_PIN(58, "PAD_SSOR_HSYNC"),
-	PINCTRL_PIN(59, "PAD_SSOR_VSYNC"),
-	PINCTRL_PIN(60, "PAD_SSOR_PIXCLK"),
-	PINCTRL_PIN(61, "PAD_CLK_DMIC1"),
-	PINCTRL_PIN(62, "PAD_DMIC1_IN"),
-	PINCTRL_PIN(63, "PAD_CLK_DMIC2"),
-	PINCTRL_PIN(64, "PAD_DMIC2_IN"),
-	PINCTRL_PIN(65, "LINE_OUTL"),
-	PINCTRL_PIN(66, "LINE_OUTR"),
-	PINCTRL_PIN(67, "MIC_INL"),
-	PINCTRL_PIN(68, "MIC_INR"),
-	PINCTRL_PIN(69, "PAD_I2S_MCLK"),
-	PINCTRL_PIN(70, "PAD_I2S_SCK"),
-	PINCTRL_PIN(71, "PAD_I2S_WS"),
-	PINCTRL_PIN(72, "PAD_I2S_SD_IN"),
-	PINCTRL_PIN(73, "PAD_I2S_SD_OUT"),
-	PINCTRL_PIN(74, "CH_SAR_PAD0"),
-	PINCTRL_PIN(75, "CH_SAR_PAD1"),
-	PINCTRL_PIN(76, "CH_SAR_PAD2"),
-	PINCTRL_PIN(77, "CH_SAR_PAD3"),
-	PINCTRL_PIN(78, "USB_HOST_DP"),
-	PINCTRL_PIN(79, "USB_HOST_DM"),
-	PINCTRL_PIN(80, "USB_DEV_DP"),
-	PINCTRL_PIN(81, "USB_DEV_DM"),
-	PINCTRL_PIN(82, "USB_HOST_PWREN"),
-	PINCTRL_PIN(83, "USB_HOST_OCD"),
-	PINCTRL_PIN(84, "USB_DEV_VBUS"),
-	PINCTRL_PIN(85, "SSOR_I2C_SCL"),
-	PINCTRL_PIN(86, "SSOR_I2C_SDA"),
-	PINCTRL_PIN(87, "SPI_HOLD"),
-	PINCTRL_PIN(88, "SPI_WP"),
-	PINCTRL_PIN(89, "SPI_SO"), //pin is not gpio
-	PINCTRL_PIN(90, "SPI_SI"), //pin is not gpio
-	PINCTRL_PIN(91, "SPI_SCK"), //pin is not gpio
-	PINCTRL_PIN(92, "SPI_CSN"), //pin is not gpio
+	PINCTRL_PIN(4, "GPIO4"),	 PINCTRL_PIN(5, "GPIO5"),
+	PINCTRL_PIN(6, "GPIO6"),	 PINCTRL_PIN(8, "SDIO1_DATA1"),
+	PINCTRL_PIN(9, "GPIO9"),	 PINCTRL_PIN(10, "GPIO10"),
+	PINCTRL_PIN(12, "GPIO12"),	 PINCTRL_PIN(16, "UART0RXD"),
+	PINCTRL_PIN(17, "UART0TXD"),	 PINCTRL_PIN(18, "UART0RTS"),
+	PINCTRL_PIN(19, "UART0CTS"),	 PINCTRL_PIN(20, "UART1RXD"),
+	PINCTRL_PIN(21, "UART1TXD"),	 PINCTRL_PIN(26, "PWMGPIO0"),
+	PINCTRL_PIN(27, "PWMGPIO1"),	 PINCTRL_PIN(32, "SDIO0_CMD"),
+	PINCTRL_PIN(33, "SDIO0_DATA0"),	 PINCTRL_PIN(34, "SDIO0_DATA1"),
+	PINCTRL_PIN(35, "SDIO0_DATA2"),	 PINCTRL_PIN(36, "SDIO0_DATA3"),
+	PINCTRL_PIN(37, "SDIO0_CLK"),	 PINCTRL_PIN(38, "SDIO0_WP"),
+	PINCTRL_PIN(39, "SDIO0_CD"),	 PINCTRL_PIN(48, "SDIO1_DATA0"),
+	PINCTRL_PIN(49, "SDIO1_CLK"),	 PINCTRL_PIN(58, "SDIO1_DATA2"),
+	PINCTRL_PIN(59, "SDIO1_DATA3"),	 PINCTRL_PIN(60, "SDIO1_CMD"),
+	PINCTRL_PIN(74, "SAR_ADC0"),	 PINCTRL_PIN(78, "USB_HOST_DP"),
+	PINCTRL_PIN(79, "USB_HOST_DM"),	 PINCTRL_PIN(80, "USB_DEV_DP"),
+	PINCTRL_PIN(81, "USB_DEV_DM"),	 PINCTRL_PIN(82, "USB_HOST_PWREN"),
+	PINCTRL_PIN(83, "USB_HOST_OCD"), PINCTRL_PIN(84, "USB_DEV_VBUS"),
+	PINCTRL_PIN(85, "I2C1_SCL"),	 PINCTRL_PIN(86, "I2C1_SDA"),
+	PINCTRL_PIN(87, "SPI_HOLD"),	 PINCTRL_PIN(88, "SPI_WP"),
+};
+
+static const char *rts493xa_gpio_names[] = {
+	" GPIO0", " GPIO1", " GPIO2", " GPIO3", " GPIO4", " GPIO5", " GPIO6",
+	" GPIO7", " GPIO8", " GPIO9", "GPIO10", "GPIO11", "GPIO12", "GPIO13",
+	"GPIO14", "GPIO15", "GPIO16", "GPIO17", "GPIO18", "GPIO19", "GPIO20",
+	"GPIO21", "GPIO22", "GPIO23", "GPIO24", "GPIO25", "GPIO26", "GPIO27",
+	"GPIO28", "GPIO29", "GPIO30", "GPIO31", "GPIO32", "GPIO33", "GPIO34",
+	"GPIO35", "GPIO36", "GPIO37", "GPIO38", "GPIO39", "GPIO40", "GPIO41",
+	"GPIO42", "GPIO43", "GPIO44", "GPIO45", "GPIO46", "GPIO47", "GPIO48",
+	"GPIO49", "GPIO50", "GPIO51", "GPIO52", "GPIO53", "GPIO54", "GPIO55",
+	"GPIO56", "GPIO57", "GPIO58", "GPIO59", "GPIO60", "GPIO61", "GPIO62",
+	"GPIO63", "GPIO64", "GPIO65", "GPIO66", "GPIO67", "GPIO68", "GPIO69",
+	"GPIO70", "GPIO71", "GPIO72", "GPIO73", "GPIO74", "GPIO75", "GPIO76",
+	"GPIO77", "GPIO78", "GPIO79", "GPIO80", "GPIO81", "GPIO82", "GPIO83",
+	"GPIO84", "GPIO85", "GPIO86", "GPIO87", "GPIO88"
 };
 
 static struct sharepin_cfg_addr pincfgaddr[] = {
@@ -492,13 +420,11 @@ static struct sharepin_cfg_addr pincfgaddr[] = {
 	  .pinaddr = SPI_GPIO_OE },
 };
 
-static const unsigned int gpio_pins[] = {
-	0,  1,	2,  3,	4,  5,	6,  7,	8,  9,	10, 11, 12, 13, 14, 15, 16, 17,
-	18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
-	36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
-	54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71,
-	72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88
-};
+static const unsigned int gpio_pins[] = { 4,  5,  6,  8,  9,  10, 12, 16,
+					  17, 18, 19, 20, 21, 26, 27, 32,
+					  33, 34, 35, 36, 37, 39, 48, 49,
+					  58, 59, 60, 74, 78, 79, 80, 81,
+					  84, 85, 86, 87, 88 };
 
 static const unsigned int uart0_pins[] = { 16, 17, 18, 19 };
 
@@ -506,45 +432,23 @@ static const unsigned int ssi_pins[] = { 16, 17, 18, 19 };
 
 static const unsigned int uart1_pins[] = { 20, 21 };
 
-static const unsigned int uart2_pins[] = { 22, 23, 24, 25 };
-
 static const unsigned int pwm0_pins[] = { 26 };
 
 static const unsigned int pwm1_pins[] = { 27 };
 
-static const unsigned int pwm2_pins[] = { 28 };
-
-static const unsigned int pwm3_pins[] = { 29 };
-
-static const unsigned int i2c0_pins[] = { 30, 31 };
-
-static const unsigned int i2cpwm_pins[] = { 26, 27 };
+static const unsigned int i2c0_pins[] = { 26, 27 };
 
 static const unsigned int sdio0_pins[] = { 32, 33, 34, 35, 36, 37 };
 
-static const unsigned int sdio0_wp_pins[] = { 38 };
-
 static const unsigned int sdio0_cd_pins[] = { 39 };
 
-static const unsigned int sdio1_pins[] = { 40, 41, 42, 43, 44, 45 };
-
-static const unsigned int sdio1_video_pins[] = {
+static const unsigned int sdio1_pins[] = {
 	8, 48, 49, 58, 59, 60,
 };
 
-static const unsigned int sdio1_wp_pins[] = { 46 };
-
-static const unsigned int sdio1_cd_pins[] = { 47 };
-
 static const unsigned int saradc0_pins[] = { 74 };
 
-static const unsigned int saradc1_pins[] = { 75 };
-
-static const unsigned int saradc2_pins[] = { 76 };
-
-static const unsigned int saradc3_pins[] = { 77 };
-
-static const unsigned int usbh_pins[] = { 78, 79, 82, 83 };
+static const unsigned int usbh_pins[] = { 78, 79 };
 
 static const unsigned int usbd_pins[] = { 80, 81, 84 };
 
@@ -552,15 +456,11 @@ static const unsigned int etnled0_pins[] = { 26 };
 
 static const unsigned int etnled1_pins[] = { 27 };
 
-static const unsigned int etnled2_pins[] = { 28 };
-
 static const unsigned int usbd_uart2_pins[] = { 80, 81 };
 
 static const unsigned int i2c1_pins[] = { 85, 86 };
 
-static const unsigned int spi_pins[] = { 87, 88, 89, 90, 91, 92 };
-
-static const unsigned int pwmsd_pins[] = { 41, 42, 43, 44 };
+static const unsigned int spi_pins[] = { 87, 88 };
 
 static const unsigned int default_pins[] = {};
 
@@ -568,34 +468,21 @@ enum {
 	GPIO_GROUP_SELECT,
 	UART0_GROUP_SELECT,
 	UART1_GROUP_SELECT,
-	UART2_GROUP_SELECT,
 	PWM0_GROUP_SELECT,
 	PWM1_GROUP_SELECT,
-	PWM2_GROUP_SELECT,
-	PWM3_GROUP_SELECT,
 	USBD_GROUP_SELECT,
 	ETNLED0_GROUP_SELECT,
 	ETNLED1_GROUP_SELECT,
-	ETNLED2_GROUP_SELECT,
 	USBH_GROUP_SELECT,
 	SARADC0_GROUP_SELECT,
-	SARADC1_GROUP_SELECT,
-	SARADC2_GROUP_SELECT,
-	SARADC3_GROUP_SELECT,
 	SSI_GROUP_SELECT,
 	SDIO0_GROUP_SELECT,
-	SDIO0WP_GROUP_SELECT,
 	SDIO0CD_GROUP_SELECT,
 	SDIO1_GROUP_SELECT,
-	SDIO1VIDEO_GROUP_SELECT,
-	SDIO1WP_GROUP_SELECT,
-	SDIO1CD_GROUP_SELECT,
 	I2C0_GROUP_SELECT,
-	I2CPWM_GROUP_SELECT,
-	UART2_USB_GROUP_SELECT,
 	I2C1_GROUP_SELECT,
+	UART2_USB_GROUP_SELECT,
 	SPI_GROUP_SELECT,
-	PWMSD_GROUP_SELECT,
 	DEFAULT_GROUP_SELECT,
 };
 
@@ -616,11 +503,6 @@ static const struct rts_pin_group rts_pin_groups[] = {
 		.num_pins = ARRAY_SIZE(uart1_pins),
 	},
 	{
-		.name = "uart2grp",
-		.pins = uart2_pins,
-		.num_pins = ARRAY_SIZE(uart2_pins),
-	},
-	{
 		.name = "pwm0grp",
 		.pins = pwm0_pins,
 		.num_pins = ARRAY_SIZE(pwm0_pins),
@@ -629,16 +511,6 @@ static const struct rts_pin_group rts_pin_groups[] = {
 		.name = "pwm1grp",
 		.pins = pwm1_pins,
 		.num_pins = ARRAY_SIZE(pwm1_pins),
-	},
-	{
-		.name = "pwm2grp",
-		.pins = pwm2_pins,
-		.num_pins = ARRAY_SIZE(pwm2_pins),
-	},
-	{
-		.name = "pwm3grp",
-		.pins = pwm3_pins,
-		.num_pins = ARRAY_SIZE(pwm3_pins),
 	},
 	{
 		.name = "usbdgrp",
@@ -656,11 +528,6 @@ static const struct rts_pin_group rts_pin_groups[] = {
 		.num_pins = ARRAY_SIZE(etnled1_pins),
 	},
 	{
-		.name = "etnled2grp",
-		.pins = etnled2_pins,
-		.num_pins = ARRAY_SIZE(etnled2_pins),
-	},
-	{
 		.name = "usbhgrp",
 		.pins = usbh_pins,
 		.num_pins = ARRAY_SIZE(usbh_pins),
@@ -669,21 +536,6 @@ static const struct rts_pin_group rts_pin_groups[] = {
 		.name = "saradc0grp",
 		.pins = saradc0_pins,
 		.num_pins = ARRAY_SIZE(saradc0_pins),
-	},
-	{
-		.name = "saradc1grp",
-		.pins = saradc1_pins,
-		.num_pins = ARRAY_SIZE(saradc1_pins),
-	},
-	{
-		.name = "saradc2grp",
-		.pins = saradc2_pins,
-		.num_pins = ARRAY_SIZE(saradc2_pins),
-	},
-	{
-		.name = "saradc3grp",
-		.pins = saradc3_pins,
-		.num_pins = ARRAY_SIZE(saradc3_pins),
 	},
 	{
 		.name = "ssigrp",
@@ -696,11 +548,6 @@ static const struct rts_pin_group rts_pin_groups[] = {
 		.num_pins = ARRAY_SIZE(sdio0_pins),
 	},
 	{
-		.name = "sdio0wpgrp",
-		.pins = sdio0_wp_pins,
-		.num_pins = ARRAY_SIZE(sdio0_wp_pins),
-	},
-	{
 		.name = "sdio0cdgrp",
 		.pins = sdio0_cd_pins,
 		.num_pins = ARRAY_SIZE(sdio0_cd_pins),
@@ -711,34 +558,9 @@ static const struct rts_pin_group rts_pin_groups[] = {
 		.num_pins = ARRAY_SIZE(sdio1_pins),
 	},
 	{
-		.name = "sdio1videogrp",
-		.pins = sdio1_video_pins,
-		.num_pins = ARRAY_SIZE(sdio1_video_pins),
-	},
-	{
-		.name = "sdio1wpgrp",
-		.pins = sdio1_wp_pins,
-		.num_pins = ARRAY_SIZE(sdio1_wp_pins),
-	},
-	{
-		.name = "sdio1cdgrp",
-		.pins = sdio1_cd_pins,
-		.num_pins = ARRAY_SIZE(sdio1_cd_pins),
-	},
-	{
 		.name = "i2c0grp",
 		.pins = i2c0_pins,
 		.num_pins = ARRAY_SIZE(i2c0_pins),
-	},
-	{
-		.name = "i2cpwmgrp",
-		.pins = i2cpwm_pins,
-		.num_pins = ARRAY_SIZE(i2cpwm_pins),
-	},
-	{
-		.name = "uart2usbdgrp",
-		.pins = usbd_uart2_pins,
-		.num_pins = ARRAY_SIZE(usbd_uart2_pins),
 	},
 	{
 		.name = "i2c1grp",
@@ -746,14 +568,14 @@ static const struct rts_pin_group rts_pin_groups[] = {
 		.num_pins = ARRAY_SIZE(i2c1_pins),
 	},
 	{
+		.name = "uart2usbdgrp",
+		.pins = usbd_uart2_pins,
+		.num_pins = ARRAY_SIZE(usbd_uart2_pins),
+	},
+	{
 		.name = "spigrp",
 		.pins = spi_pins,
 		.num_pins = ARRAY_SIZE(spi_pins),
-	},
-	{
-		.name = "pwmsdgrp",
-		.pins = pwmsd_pins,
-		.num_pins = ARRAY_SIZE(pwmsd_pins),
 	},
 	{
 		.name = "default",
@@ -764,53 +586,49 @@ static const struct rts_pin_group rts_pin_groups[] = {
 
 static const char *const gpiogrps[] = { "gpiogrp" };
 
-static const char *const uartgrps[] = { "uart0grp", "uart1grp", "uart2grp",
+static const char *const uartgrps[] = { "uart0grp", "uart1grp",
 					"uart2usbdgrp" };
 
-static const char *const pwmgrps[] = { "pwm0grp", "pwm1grp", "pwm2grp",
-				       "pwm3grp", "pwmsdgrp" };
+static const char *const pwmgrps[] = { "pwm0grp", "pwm1grp" };
 
 static const char *const usbdgrps[] = { "usbdgrp", "default" };
 
-static const char *const etnledgrps[] = { "etnled0grp", "etnled1grp",
-					  "etnled2grp" };
+static const char *const etnledgrps[] = { "etnled0grp", "etnled1grp" };
 
-static const char *const saradcgrps[] = {
-	"saradc0grp",
-	"saradc1grp",
-	"saradc2grp",
-	"saradc3grp",
-};
+static const char *const saradcgrps[] = { "saradc0grp" };
 
 static const char *const usbhgrps[] = { "usbhgrp" };
 
 static const char *const ssigrps[] = { "ssigrp" };
 
-static const char *const sdio0grps[] = { "sdio0grp", "sdio0wpgrp",
-					 "sdio0cdgrp" };
+static const char *const sdio0grps[] = { "sdio0grp", "sdio0cdgrp" };
 
-static const char *const sdio1grps[] = { "sdio1grp", "sdio1wpgrp", "sdio1cdgrp",
-					 "sdio1videogrp" };
+static const char *const sdio1grps[] = { "sdio1grp" };
 
-static const char *const i2cgrps[] = { "i2c0grp", "i2cpwmgrp", "i2c1grp" };
+static const char *const i2cgrps[] = { "i2c0grp", "i2c1grp" };
 
 static const char *const spigrps[] = { "spigrp", "default" };
+
+enum {
+	GPIO_FUNC_SELECT,
+	UART_FUNC_SELECT,
+	PWM_FUNC_SELECT,
+	USBD_FUNC_SELECT,
+	ETNLED_FUNC_SELECT,
+	SARADC_FUNC_SELECT,
+	USBHST_FUNC_SELECT,
+	SSI_FUNC_SELECT,
+	SDIO0_FUNC_SELECT,
+	SDIO1_FUNC_SELECT,
+	I2C_FUNC_SELECT,
+	SPI_FUNC_SELECT,
+};
 
 static const struct rts_func rts_functions[] = {
 	{
 		.name = "gpiofunc",
 		.groups = gpiogrps,
 		.num_groups = ARRAY_SIZE(gpiogrps),
-	},
-	{
-		.name = "sdio0func",
-		.groups = sdio0grps,
-		.num_groups = ARRAY_SIZE(sdio0grps),
-	},
-	{
-		.name = "sdio1func",
-		.groups = sdio1grps,
-		.num_groups = ARRAY_SIZE(sdio1grps),
 	},
 	{
 		.name = "uartfunc",
@@ -833,19 +651,29 @@ static const struct rts_func rts_functions[] = {
 		.num_groups = ARRAY_SIZE(etnledgrps),
 	},
 	{
-		.name = "usbhfunc",
-		.groups = usbhgrps,
-		.num_groups = ARRAY_SIZE(usbhgrps),
-	},
-	{
 		.name = "saradcfunc",
 		.groups = saradcgrps,
 		.num_groups = ARRAY_SIZE(saradcgrps),
 	},
 	{
+		.name = "usbhfunc",
+		.groups = usbhgrps,
+		.num_groups = ARRAY_SIZE(usbhgrps),
+	},
+	{
 		.name = "ssifunc",
 		.groups = ssigrps,
 		.num_groups = ARRAY_SIZE(ssigrps),
+	},
+	{
+		.name = "sdio0func",
+		.groups = sdio0grps,
+		.num_groups = ARRAY_SIZE(sdio0grps),
+	},
+	{
+		.name = "sdio1func",
+		.groups = sdio1grps,
+		.num_groups = ARRAY_SIZE(sdio1grps),
 	},
 	{
 		.name = "i2cfunc",
@@ -1287,6 +1115,18 @@ static int rts_gpio_to_irq(struct gpio_chip *chip, unsigned int offset)
 	return irq_linear_revmap(rtspc->irq_domain, offset);
 }
 
+static int rts_init_valid_mask(struct gpio_chip *gc, unsigned long *valid_mask,
+			       unsigned int ngpios)
+{
+	bitmap_zero(valid_mask, ngpios);
+
+	for (size_t i = 0; i < sizeof(gpio_pins) / sizeof(gpio_pins[0]); i++) {
+		bitmap_set(valid_mask, gpio_pins[i], 1);
+	}
+
+	return 0;
+}
+
 static struct gpio_chip rts_gpio_chip = {
 	.label = REALTEK_MC_PINCTRL_NAME,
 	.owner = THIS_MODULE,
@@ -1298,26 +1138,27 @@ static struct gpio_chip rts_gpio_chip = {
 	.get = rts_gpio_get,
 	.set = rts_gpio_set,
 	.to_irq = rts_gpio_to_irq,
+	.init_valid_mask = rts_init_valid_mask,
 	.base = 0,
 	.ngpio = RTS_MAX_NGPIO,
 	.can_sleep = 0,
 };
 
-static int rts_rtspctl_get_groups_count(struct pinctrl_dev *rtspctldev)
+static int rts_pctl_get_groups_count(struct pinctrl_dev *rtspctldev)
 {
 	return ARRAY_SIZE(rts_pin_groups);
 }
 
-static const char *rts_rtspctl_get_group_name(struct pinctrl_dev *rtspctldev,
-					      unsigned int selector)
+static const char *rts_pctl_get_group_name(struct pinctrl_dev *rtspctldev,
+					   unsigned int selector)
 {
 	return rts_pin_groups[selector].name;
 }
 
-static int rts_rtspctl_get_group_pins(struct pinctrl_dev *rtspctldev,
-				      unsigned int selector,
-				      const unsigned int **pins,
-				      unsigned int *num_pins)
+static int rts_pctl_get_group_pins(struct pinctrl_dev *rtspctldev,
+				   unsigned int selector,
+				   const unsigned int **pins,
+				   unsigned int *num_pins)
 {
 	*pins = rts_pin_groups[selector].pins;
 	*num_pins = rts_pin_groups[selector].num_pins;
@@ -1325,16 +1166,16 @@ static int rts_rtspctl_get_group_pins(struct pinctrl_dev *rtspctldev,
 	return 0;
 }
 
-static void rts_rtspctl_pin_dbg_show(struct pinctrl_dev *rtspctldev,
-				     struct seq_file *s, unsigned int offset)
+static void rts_pctl_pin_dbg_show(struct pinctrl_dev *rtspctldev,
+				  struct seq_file *s, unsigned int offset)
 {
 }
 
-static const struct pinctrl_ops rts_rtspctl_ops = {
-	.get_groups_count = rts_rtspctl_get_groups_count,
-	.get_group_name = rts_rtspctl_get_group_name,
-	.get_group_pins = rts_rtspctl_get_group_pins,
-	.pin_dbg_show = rts_rtspctl_pin_dbg_show,
+static const struct pinctrl_ops rts_pctl_ops = {
+	.get_groups_count = rts_pctl_get_groups_count,
+	.get_group_name = rts_pctl_get_group_name,
+	.get_group_pins = rts_pctl_get_group_pins,
+	.pin_dbg_show = rts_pctl_pin_dbg_show,
 #ifdef CONFIG_OF
 	.dt_node_to_map = pinconf_generic_dt_node_to_map_all,
 	.dt_free_map = pinctrl_utils_free_map,
@@ -1374,11 +1215,6 @@ static int rts_pmx_enable(struct pinctrl_dev *rtspctldev,
 	switch (func_selector) {
 	case I2C_FUNC_SELECT:
 		if (group_selector == I2C0_GROUP_SELECT) {
-			rts_gpio_set_field(rtspc->addr + XB2_I2C_PAD_CFG, 2, 2,
-					   0);
-			rts_gpio_set_field(rtspc->addr + XB2_I2C_PAD_CFG, 2, 2,
-					   4);
-		} else if (group_selector == I2CPWM_GROUP_SELECT) {
 			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 8, 4, 0);
 			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 8, 4, 4);
 		} else if (group_selector == I2C1_GROUP_SELECT) {
@@ -1391,12 +1227,6 @@ static int rts_pmx_enable(struct pinctrl_dev *rtspctldev,
 			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 2, 4, 0);
 		else if (group_selector == PWM1_GROUP_SELECT)
 			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 2, 4, 4);
-		else if (group_selector == PWM2_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 2, 4, 8);
-		else if (group_selector == PWM3_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 2, 4, 12);
-		else if (group_selector == PWMSD_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + SD1_PAD_CFG, 4, 4, 0);
 		break;
 	case UART_FUNC_SELECT:
 		if (group_selector == UART0_GROUP_SELECT) {
@@ -1413,15 +1243,6 @@ static int rts_pmx_enable(struct pinctrl_dev *rtspctldev,
 					   8);
 			rts_gpio_set_field(rtspc->addr + UART1_PAD_CFG, 2, 4,
 					   12);
-		} else if (group_selector == UART2_GROUP_SELECT) {
-			rts_gpio_set_field(rtspc->addr + UART2_PAD_CFG, 2, 4,
-					   0);
-			rts_gpio_set_field(rtspc->addr + UART2_PAD_CFG, 2, 4,
-					   4);
-			rts_gpio_set_field(rtspc->addr + UART2_PAD_CFG, 2, 4,
-					   8);
-			rts_gpio_set_field(rtspc->addr + UART2_PAD_CFG, 2, 4,
-					   12);
 		} else if (group_selector == UART2_USB_GROUP_SELECT) {
 			rts_gpio_set_field(rtspc->addr + USB1_PAD_CFG, 4, 4, 0);
 			rts_gpio_set_field(rtspc->addr + USB1_PAD_CFG, 4, 4, 4);
@@ -1437,8 +1258,6 @@ static int rts_pmx_enable(struct pinctrl_dev *rtspctldev,
 			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 4, 4, 0);
 		else if (group_selector == ETNLED1_GROUP_SELECT)
 			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 4, 4, 4);
-		else if (group_selector == ETNLED2_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + PWM_PAD_CFG, 4, 3, 8);
 		break;
 	case USBHST_FUNC_SELECT:
 		rts_gpio_set_field(rtspc->addr + USB0_PAD_CFG, 1, 2, 4);
@@ -1450,15 +1269,6 @@ static int rts_pmx_enable(struct pinctrl_dev *rtspctldev,
 		if (group_selector == SARADC0_GROUP_SELECT)
 			rts_gpio_set_field(rtspc->addr + SARADC_PAD_CFG, 1, 2,
 					   0);
-		else if (group_selector == SARADC1_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + SARADC_PAD_CFG, 1, 2,
-					   4);
-		else if (group_selector == SARADC2_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + SARADC_PAD_CFG, 1, 2,
-					   8);
-		else
-			rts_gpio_set_field(rtspc->addr + SARADC_PAD_CFG, 1, 2,
-					   12);
 		break;
 	case SSI_FUNC_SELECT:
 		rts_gpio_set_field(rtspc->addr + UART0_PAD_CFG, 4, 3, 0);
@@ -1468,20 +1278,11 @@ static int rts_pmx_enable(struct pinctrl_dev *rtspctldev,
 		break;
 	case SDIO0_FUNC_SELECT:
 		rts_gpio_set_field(rtspc->addr + SD0_PAD_CFG, 2, 2, 0);
-		if (group_selector == SDIO0WP_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + SD0_PAD_CFG, 2, 2, 4);
-		else if (group_selector == SDIO0CD_GROUP_SELECT)
+		if (group_selector == SDIO0CD_GROUP_SELECT)
 			rts_gpio_set_field(rtspc->addr + SD0_PAD_CFG, 2, 2, 2);
 		break;
 	case SDIO1_FUNC_SELECT:
 		if (group_selector == SDIO1_GROUP_SELECT) {
-			rts_gpio_set_field(rtspc->addr + SD1_PAD_CFG, 2, 4, 0);
-			rts_gpio_set_field(rtspc->addr + SD1_PAD_CFG, 0, 1, 12);
-		} else if (group_selector == SDIO1WP_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + SD1_PAD_CFG, 2, 4, 8);
-		else if (group_selector == SDIO1CD_GROUP_SELECT)
-			rts_gpio_set_field(rtspc->addr + SD1_PAD_CFG, 2, 4, 4);
-		else if (group_selector == SDIO1VIDEO_GROUP_SELECT) {
 			rts_gpio_set_field(rtspc->addr + GPIO_0_15_PAD_CFG, 4,
 					   4, 8);
 			rts_gpio_set_field(rtspc->addr + SD1_PAD_CFG, 1, 1, 12);
@@ -1584,7 +1385,7 @@ static int rts_pmx_request(struct pinctrl_dev *rtspctldev, unsigned int offset)
 	struct rts_pinctrl *rtspc = pinctrl_dev_get_drvdata(rtspctldev);
 	u64 bs;
 
-	if (offset > 119)
+	if (offset >= RTS_MAX_NGPIO)
 		return -EINVAL;
 
 	i = offset > 63;
@@ -1605,7 +1406,7 @@ static int rts_pmx_free(struct pinctrl_dev *rtspctldev, unsigned int offset)
 	struct rts_pinctrl *rtspc = pinctrl_dev_get_drvdata(rtspctldev);
 	u64 bs;
 
-	if (offset > 119)
+	if (offset >= RTS_MAX_NGPIO)
 		return -EINVAL;
 
 	i = offset > 63;
@@ -1629,6 +1430,7 @@ static const struct pinmux_ops rts_pmx_ops = {
 	.get_function_groups = rts_pmx_get_function_groups,
 	.set_mux = rts_pmx_enable,
 	.gpio_set_direction = rts_pmx_gpio_set_direction,
+	.strict = true,
 };
 
 static int rts_pin_config_set(struct rts_pinctrl *rtspc, unsigned int pin,
@@ -1691,7 +1493,7 @@ static struct pinctrl_desc rts_pinctrl_desc = {
 	.name = REALTEK_MC_PINCTRL_NAME,
 	.pins = rts_gpio_pins,
 	.npins = ARRAY_SIZE(rts_gpio_pins),
-	.pctlops = &rts_rtspctl_ops,
+	.pctlops = &rts_pctl_ops,
 	.pmxops = &rts_pmx_ops,
 	.confops = &rts_pinconf_ops,
 	.owner = THIS_MODULE,
@@ -1894,6 +1696,7 @@ static int rts_pinctrl_probe(struct platform_device *pdev)
 	struct rts_pinpair *pp;
 	u32 ngpios;
 	u32 mapping[4], map;
+	int gpioirq;
 
 	const struct of_device_id *of_id;
 
@@ -1962,8 +1765,8 @@ static int rts_pinctrl_probe(struct platform_device *pdev)
 		goto unmap_res;
 	}
 
-	for (i = 0; i < ngpios; i++) {
-		int gpioirq = irq_create_mapping(rtspc->irq_domain, i);
+	for (i = 0; i < sizeof(gpio_pins) / sizeof(gpio_pins[0]); i++) {
+		gpioirq = irq_create_mapping(rtspc->irq_domain, gpio_pins[i]);
 
 		irq_set_lockdep_class(gpioirq, &gpio_lock_class,
 				      &gpio_request_class);
@@ -1982,6 +1785,7 @@ static int rts_pinctrl_probe(struct platform_device *pdev)
 
 	rts_gpio_chip.ngpio = ngpios;
 	rtspc->gpio_chip = &rts_gpio_chip;
+	rtspc->gpio_chip->names = rts493xa_gpio_names;
 	rtspc->gpio_chip->label = dev_name(dev);
 	rtspc->gpio_chip->parent = dev;
 

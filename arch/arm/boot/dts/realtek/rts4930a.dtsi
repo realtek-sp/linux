@@ -37,45 +37,6 @@
 	status = "okay";
 };
 
-&pinctrl {
-	sdhc1_default_mode: sdhc1_default {
-		default_mux {
-			function = "sdio1func";
-			groups = "sdio1videogrp";
-		};
-	};
-
-	sdhc1_pullup_mode: sdhc1_pullup {
-		default_mux {
-			function = "sdio1func";
-			groups = "sdio1videogrp";
-		};
-		pullup_cfg0 {
-			pins = "GPIO8",
-				"PAD_SSOR_PIXDIN_EXT_0",
-				"PAD_SSOR_HSYNC",
-				"PAD_SSOR_VSYNC",
-				"PAD_SSOR_PIXCLK";
-			bias-pull-up;
-		};
-	};
-
-	sdhc1_pulldown_mode: sdhc1_pulldown {
-		default_mux {
-			function = "sdio1func";
-			groups = "sdio1videogrp";
-		};
-		pulldown_cfg2 {
-			pins = "GPIO8",
-				"PAD_SSOR_PIXDIN_EXT_0",
-				"PAD_SSOR_HSYNC",
-				"PAD_SSOR_VSYNC",
-				"PAD_SSOR_PIXCLK";
-			bias-pull-down;
-		};
-	};
-};
-
 &sdhc1 {
 	broken-cd;
 };
@@ -85,7 +46,6 @@
 };
 
 &i2c0 {
-	pinctrl-0 = <&i2cpwm_default_mode>;
 	status = "okay";
 };
 

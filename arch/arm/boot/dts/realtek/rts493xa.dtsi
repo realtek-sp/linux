@@ -313,8 +313,6 @@
 			current-speed = <57600>;
 			clocks = <&clks RLX_CLK_UART2_CK>;
 			clock-frequency = <24000000>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&uart2_default_mode>;
 			status = "disabled";
 		};
 
