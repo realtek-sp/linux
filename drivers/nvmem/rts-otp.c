@@ -613,6 +613,6 @@ static struct platform_driver rts_otp_driver = {
 };
 
 module_platform_driver(rts_otp_driver);
-MODULE_AUTHOR("Zain Zhou <zain_zhou@realsil.com.cn>");
-MODULE_DESCRIPTION("Realtek otp driver");
+
+MODULE_DESCRIPTION("RTS493xA OTP Driver");
 MODULE_LICENSE("GPL");

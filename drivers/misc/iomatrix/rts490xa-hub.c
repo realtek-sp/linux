@@ -2015,5 +2015,5 @@ struct i2c_driver i2c_hub = {
 
 module_i2c_driver(i2c_hub);
 
-MODULE_DESCRIPTION("RTS490XA HUB driver");
+MODULE_DESCRIPTION("RTS490xA HUB Driver");
 MODULE_LICENSE("GPL");

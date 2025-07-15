@@ -39,7 +39,7 @@
 
 #include "ehci.h"
 
-#define DRIVER_DESC "ehci-rts platform driver"
+#define DRIVER_DESC "RTS493xA EHCI Driver"
 
 static const char hcd_name[] = "ehci-rts";
 static struct usb_phy *phy;
@@ -363,8 +363,6 @@ static int __init ehci_rts_init(void)
 	if (usb_disabled())
 		return -ENODEV;
 
-	pr_info("%s: " DRIVER_DESC "\n", hcd_name);
-
 	ehci_init_driver(&ehci_rts_hc_driver, &platform_overrides);
 	ehci_rts_hc_driver.map_urb_for_dma = ehci_rts_map_urb_for_dma;
 	ehci_rts_hc_driver.unmap_urb_for_dma = ehci_rts_unmap_urb_for_dma;
@@ -378,3 +376,6 @@ static void __exit ehci_rts_cleanup(void)
 	platform_driver_unregister(&ehci_rts_driver);
 }
 module_exit(ehci_rts_cleanup);
+
+MODULE_DESCRIPTION(DRIVER_DESC);
+MODULE_LICENSE("GPL");

@@ -39,7 +39,7 @@
 
 #include "ohci.h"
 
-#define DRIVER_DESC "ohci-rts platform driver"
+#define DRIVER_DESC "RTS493xA OHCI Driver"
 
 static const char hcd_name[] = "ohci-rts";
 
@@ -324,8 +324,6 @@ static int __init ohci_rts_init(void)
 	if (usb_disabled())
 		return -ENODEV;
 
-	pr_info("%s: " DRIVER_DESC "\n", hcd_name);
-
 	ohci_init_driver(&ohci_rts_hc_driver, &platform_overrides);
 	ohci_rts_hc_driver.map_urb_for_dma = ohci_rts_map_urb_for_dma;
 	ohci_rts_hc_driver.unmap_urb_for_dma = ohci_rts_unmap_urb_for_dma;
@@ -340,3 +338,6 @@ static void __exit ohci_rts_cleanup(void)
 	platform_driver_unregister(&ohci_rts_driver);
 }
 module_exit(ohci_rts_cleanup);
+
+MODULE_DESCRIPTION(DRIVER_DESC);
+MODULE_LICENSE("GPL");

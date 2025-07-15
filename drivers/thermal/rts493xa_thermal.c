@@ -260,4 +260,5 @@ static struct platform_driver rts_thermal_driver = {
 
 module_platform_driver(rts_thermal_driver);
 
-MODULE_LICENSE("GPL v2");
+MODULE_DESCRIPTION("RTS493xA Thermal Driver");
+MODULE_LICENSE("GPL");

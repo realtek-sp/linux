@@ -209,3 +209,6 @@ static int __init rts_timer_init(struct device_node *node)
 }
 TIMER_OF_DECLARE(rts493xa_clksrc_timer, "realtek,rts493xa-clksrc-timer",
 		 rts_timer_init);
+
+MODULE_DESCRIPTION("RTS493xA Clock Source Driver");
+MODULE_LICENSE("GPL");

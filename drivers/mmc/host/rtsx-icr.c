@@ -2432,3 +2432,6 @@ static void rtsx_icr_remove_debugfs(struct rtsx_icr *icr)
 }
 
 module_platform_driver(rtsx_icr_driver);
+
+MODULE_DESCRIPTION("RTS493xA MMC/SD Driver");
+MODULE_LICENSE("GPL");

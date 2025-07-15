@@ -448,3 +448,6 @@ static struct platform_driver pwm_driver = {
 	.remove = rtsx_pwm_remove,
 };
 module_platform_driver(pwm_driver);
+
+MODULE_DESCRIPTION("RTS493xA PWM Driver");
+MODULE_LICENSE("GPL");

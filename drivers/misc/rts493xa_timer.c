@@ -529,6 +529,6 @@ static struct platform_driver rts_timer_driver = {
 
 module_platform_driver(rts_timer_driver);
 
-MODULE_DESCRIPTION("RTS493XA rts493xa_timer driver");
-MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:rts493xa_timer");
+MODULE_DESCRIPTION("RTS493xA Misc Timer Driver");
+MODULE_LICENSE("GPL");

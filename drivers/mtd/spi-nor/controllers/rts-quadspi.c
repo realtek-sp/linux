@@ -1084,5 +1084,5 @@ static struct platform_driver rts_qspi_driver = {
 module_platform_driver(rts_qspi_driver);
 
 MODULE_ALIAS("platform:rts-quadspi");
+MODULE_DESCRIPTION("RTS493xA SPI Nor Flash Controller Driver");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("QuadSPI nor flash controller driver for realtek soc");

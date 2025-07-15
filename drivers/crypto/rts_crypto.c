@@ -2552,5 +2552,5 @@ static struct platform_driver rts_crypto_driver = {
 };
 module_platform_driver(rts_crypto_driver);
 
+MODULE_DESCRIPTION("RTS493xA Crypto Driver");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Realtek RLX crypto driver");

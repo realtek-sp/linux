@@ -2847,5 +2847,5 @@ static void __exit rts_usb_driver_cleanup(void)
 
 module_exit(rts_usb_driver_cleanup);
 
+MODULE_DESCRIPTION("RTS493xA USB Dev Driver");
 MODULE_LICENSE("GPL v2");
-MODULE_DESCRIPTION("Realtek USB dev driver");

@@ -314,3 +314,6 @@ static struct platform_driver dw_spi_rts_driver = {
 	},
 };
 module_platform_driver(dw_spi_rts_driver);
+
+MODULE_DESCRIPTION("RTS493xA SSI Driver");
+MODULE_LICENSE("GPL");

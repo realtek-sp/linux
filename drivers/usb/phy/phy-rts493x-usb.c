@@ -673,3 +673,6 @@ static void __exit rts_usb_phy_exit(void)
 	platform_driver_unregister(&rts_usb_phy_driver);
 }
 module_exit(rts_usb_phy_exit);
+
+MODULE_DESCRIPTION("RTS493xA USB Phy Driver");
+MODULE_LICENSE("GPL");

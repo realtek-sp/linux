@@ -413,3 +413,6 @@ static struct platform_driver rts_rtc_driver = {
 };
 
 module_platform_driver(rts_rtc_driver);
+
+MODULE_DESCRIPTION("RTS493xA RTC Driver");
+MODULE_LICENSE("GPL");

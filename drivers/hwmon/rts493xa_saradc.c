@@ -242,3 +242,6 @@ static struct platform_driver saradc_driver = {
 };
 
 module_platform_driver(saradc_driver);
+
+MODULE_DESCRIPTION("RTS493xA SARADC Driver");
+MODULE_LICENSE("GPL");

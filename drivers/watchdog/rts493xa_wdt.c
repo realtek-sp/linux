@@ -232,3 +232,6 @@ static struct platform_driver rts_wdt_driver = {
 	},
 };
 module_platform_driver(rts_wdt_driver);
+
+MODULE_DESCRIPTION("RTS493xA Watchdog Driver");
+MODULE_LICENSE("GPL");
