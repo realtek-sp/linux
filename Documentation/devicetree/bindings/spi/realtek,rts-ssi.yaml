@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: GPL-2.0
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/spi/realtek,rts-ssi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Realtek Synchronous Serial Interface Device Tree Bindings for RTS493xA Series
+
+allOf:
+  - $ref: spi-controller.yaml#
+
+properties:
+  compatible:
+    enum:
+      - realtek,dw-apb-ssi
+
+  reg:
+    minItems: 2
+    maxItems: 2
+    description: |
+      Base addresses and sizes of the SPI controller registers.
+
+  clocks:
+    minItems: 1
+    description: |
+      Phandle to the clock used by the SPI controller.
+
+  clock-names:
+    items:
+      - const: ssi_ck
+    description: |
+      Name of the clock used by the SPI controller.
+
+  interrupt-parent:
+    description: |
+      Phandle to the interrupt controller.
+
+  interrupts:
+    maxItems: 1
+    description: |
+      Interrupt specifier for the SPI controller.
+
+  num-cs:
+    minimum: 1
+    maximum: 4
+    description: |
+      Number of chip selects.
+
+  "#address-cells":
+    const: 1
+    description: |
+      Number of address cells for child nodes.
+
+  "#size-cells":
+    const: 0
+    description: |
+      Number of size cells for child nodes.
+
+  pinctrl-names:
+    items:
+      - const: default
+    description: |
+      Names of the pin control states.
+
+  pinctrl-0:
+    description: |
+      Phandle to the pin control state.
+
+  status:
+    enum: [ "okay", "disabled" ]
+    description: |
+      Operational status of the SPI controller.
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - interrupts
+  - num-cs
+  - "#address-cells"
+  - "#size-cells"
+
+additionalProperties: true
+
+examples:
+  - |
+    spi1: spi@19210000 {
+      compatible = "realtek,dw-apb-ssi";
+      reg = <0x19210000 0x10000>, <0x18870070 0x20>;
+      clocks = <&clks RLX_CLK_SSI_CK>;
+      clock-names = "ssi_ck";
+      interrupt-parent = <&gic>;
+      interrupts = <GIC_SPI BSP_IRQ_SSI IRQ_TYPE_LEVEL_HIGH>;
+      num-cs = <2>;
+      #address-cells = <1>;
+      #size-cells = <0>;
+      pinctrl-names = "default";
+      pinctrl-0 = <&ssi_default_mode>;
+      status = "disabled";
+    };
+
+...
