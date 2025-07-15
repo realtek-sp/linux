@@ -2340,41 +2340,6 @@ static ssize_t rtsx_icr_card_exist_get(struct device *dev,
 static DEVICE_ATTR(card_exist, 0664, rtsx_icr_card_exist_get,
 		   rtsx_icr_card_exist_set);
 
-static ssize_t rtsx_icr_support_uhs_set(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t count)
-{
-	struct rtsx_icr *icr = dev_get_drvdata(dev);
-	struct mmc_host *mmc = icr->mmc;
-	u32 uhs_caps = MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
-		       MMC_CAP_UHS_SDR50;
-	unsigned long value = 0;
-
-	if (kstrtoul(buf, 0, &value))
-		return -EINVAL;
-
-	if (value == 1)
-		icr->caps |= uhs_caps;
-	else if (value)
-		icr->caps = value;
-	else
-		icr->caps &= ~uhs_caps;
-	mmc->caps = icr->caps;
-
-	return count;
-}
-static ssize_t rtsx_icr_support_uhs_get(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	struct rtsx_icr *icr = dev_get_drvdata(dev);
-	struct mmc_host *mmc = icr->mmc;
-
-	return snprintf(buf, 32, "0x%x\n", mmc->caps);
-}
-static DEVICE_ATTR(support_uhs, 0664, rtsx_icr_support_uhs_get,
-		   rtsx_icr_support_uhs_set);
-
 static ssize_t rtsx_icr_trigger_set(struct device *dev,
 				    struct device_attribute *attr,
 				    const char *buf, size_t count)
@@ -2437,7 +2402,6 @@ void rtsx_icr_add_debugfs(struct rtsx_icr *icr)
 	add_file(ip_register);
 	add_file(ocp_register);
 	add_file(card_exist);
-	add_file(support_uhs);
 	add_file(trigger);
 	add_file(max_clock);
 	add_file(min_clock);
@@ -2457,7 +2421,6 @@ static void rtsx_icr_remove_debugfs(struct rtsx_icr *icr)
 	remove_file(ip_register);
 	remove_file(ocp_register);
 	remove_file(card_exist);
-	remove_file(support_uhs);
 	remove_file(trigger);
 	remove_file(max_clock);
 	remove_file(min_clock);
