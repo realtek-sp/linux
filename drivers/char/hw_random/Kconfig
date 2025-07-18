@@ -21,6 +21,18 @@ menuconfig HW_RANDOM
 
 if HW_RANDOM
 
+config HW_RANDOM_REALTEK
+	tristate "Realtek Random Number Generator support"
+	default HW_RANDOM
+	help
+	  This driver provides kernel-side support for the Random Number
+	  Generator hardware found on Realtek RTS493xA.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called rts_rng.
+
+	  If unsure, say Y.
+
 config HW_RANDOM_TIMERIOMEM
 	tristate "Timer IOMEM HW Random Number Generator support"
 	depends on HAS_IOMEM
