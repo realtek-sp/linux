@@ -32,7 +32,7 @@
 #include <linux/pinctrl/consumer.h>
 #include <linux/cdev.h>
 
-#define NUM_PWM 4
+#define MAX_PWM 4
 
 #define XB2_PWM_EN   0
 #define XB2_PWM_KEEP 4
@@ -56,7 +56,7 @@ struct rtsx_pwm_chip {
 	struct device *dev;
 	u32 busclk;
 	struct class *pwm_class;
-	struct pwm_desc desc[4];
+	struct pwm_desc *desc;
 	void __iomem *mmio_base;
 };
 
@@ -67,7 +67,7 @@ static ssize_t duty_ns_show(struct device *_dev, struct device_attribute *attr,
 
 	struct rtsx_pwm_chip *pwm = dev_get_drvdata(_dev);
 
-	for (i = 0; i < NUM_PWM; i++)
+	for (i = 0; i < pwm->chip.npwm; i++)
 		if (pwm->desc[i].dev == _dev) {
 			if (pwm->desc[i].pwm == 0)
 				return -EIO;
@@ -93,7 +93,7 @@ static ssize_t duty_ns_store(struct device *_dev, struct device_attribute *attr,
 	if (val >= 0x40000000)
 		return -ERANGE;
 
-	for (i = 0; i < NUM_PWM; i++)
+	for (i = 0; i < pwm->chip.npwm; i++)
 		if (pwm->desc[i].dev == _dev) {
 			if (pwm->desc[i].pwm == 0)
 				return -EIO;
@@ -112,7 +112,7 @@ static ssize_t period_ns_show(struct device *_dev,
 
 	struct rtsx_pwm_chip *pwm = dev_get_drvdata(_dev);
 
-	for (i = 0; i < NUM_PWM; i++)
+	for (i = 0; i < pwm->chip.npwm; i++)
 		if (pwm->desc[i].dev == _dev) {
 			if (pwm->desc[i].pwm == 0)
 				return -EIO;
@@ -139,7 +139,7 @@ static ssize_t period_ns_store(struct device *_dev,
 	if (val >= 0x40000000)
 		return -ERANGE;
 
-	for (i = 0; i < NUM_PWM; i++)
+	for (i = 0; i < pwm->chip.npwm; i++)
 		if (pwm->desc[i].dev == _dev) {
 			if (pwm->desc[i].pwm == 0)
 				return -EIO;
@@ -164,7 +164,7 @@ static ssize_t enable_store(struct device *_dev, struct device_attribute *attr,
 	if (err)
 		return err;
 
-	for (i = 0; i < NUM_PWM; i++)
+	for (i = 0; i < pwm->chip.npwm; i++)
 		if (pwm->desc[i].dev == _dev) {
 			if (pwm->desc[i].pwm == 0)
 				return -EIO;
@@ -198,7 +198,7 @@ static ssize_t request_store(struct device *_dev, struct device_attribute *attr,
 	if (err)
 		return err;
 
-	for (i = 0; i < NUM_PWM; i++) {
+	for (i = 0; i < pwm->chip.npwm; i++) {
 		if (pwm->desc[i].dev == _dev) {
 			if (val) {
 				if (pwm->desc[i].pwm == 0) {
@@ -325,8 +325,10 @@ static int rtsx_pwm_probe(struct platform_device *pdev)
 	struct rtsx_pwm_chip *pwm;
 	struct resource *r;
 	struct clk *clk;
-	int ret;
-	int i;
+	struct device_node *np = pdev->dev.of_node;
+	struct device_node *pinctrl_node;
+	struct device_node *mux_node;
+	int num_groups, ret, i;
 
 	pwm = devm_kzalloc(&pdev->dev, sizeof(*pwm), GFP_KERNEL);
 	if (!pwm)
@@ -338,6 +340,31 @@ static int rtsx_pwm_probe(struct platform_device *pdev)
 	pwm->mmio_base = devm_ioremap_resource(&pdev->dev, r);
 	if (IS_ERR(pwm->mmio_base))
 		return PTR_ERR(pwm->mmio_base);
+
+	pinctrl_node = of_parse_phandle(np, "pinctrl-0", 0);
+	if (!pinctrl_node) {
+		dev_err(&pdev->dev, "Failed to find pinctrl-0 node\n");
+		return -ENODEV;
+	}
+
+	mux_node = of_get_child_by_name(pinctrl_node, "default_mux");
+	of_node_put(pinctrl_node);
+	if (!mux_node) {
+		dev_err(&pdev->dev, "Failed to find default_mux node\n");
+		return -ENODEV;
+	}
+
+	num_groups = of_property_count_strings(mux_node, "groups");
+	of_node_put(mux_node);
+	if (num_groups < 0) {
+		dev_err(&pdev->dev, "Failed to count groups\n");
+		num_groups = MAX_PWM;
+	}
+
+	pwm->desc = devm_kzalloc(&pdev->dev, num_groups * sizeof(*pwm->desc),
+				 GFP_KERNEL);
+	if (!pwm->desc)
+		return -ENOMEM;
 
 	platform_set_drvdata(pdev, pwm);
 
@@ -352,26 +379,7 @@ static int rtsx_pwm_probe(struct platform_device *pdev)
 	pwm->chip.dev = &pdev->dev;
 	pwm->chip.ops = &rtsx_pwm_ops;
 	pwm->chip.base = -1;
-	pwm->chip.npwm = NUM_PWM;
-
-	pwm->pinctrl = devm_pinctrl_get(&pdev->dev);
-	if (IS_ERR(pwm->pinctrl))
-		return PTR_ERR(pwm->pinctrl);
-
-	pwm->default_state =
-		pinctrl_lookup_state(pwm->pinctrl, PINCTRL_STATE_DEFAULT);
-
-	/* Allow pins to be muxed in and configured */
-	if (IS_ERR(pwm->default_state)) {
-		dev_err(&pdev->dev, "could not get default status\n");
-		return PTR_ERR(pwm->default_state);
-	}
-
-	ret = pinctrl_select_state(pwm->pinctrl, pwm->default_state);
-	if (ret) {
-		dev_err(&pdev->dev, "could not set default pins\n");
-		return ret;
-	}
+	pwm->chip.npwm = num_groups;
 
 	writel(1, pwm->mmio_base + XB2_PWM_KEEP);
 	writel(1, pwm->mmio_base + 0x40 + XB2_PWM_KEEP);
@@ -388,7 +396,7 @@ static int rtsx_pwm_probe(struct platform_device *pdev)
 	if (IS_ERR(pwm->pwm_class))
 		return PTR_ERR(pwm->pwm_class);
 
-	for (i = 0; i < NUM_PWM; i++) {
+	for (i = 0; i < pwm->chip.npwm; i++) {
 		pwm->desc[i].dev = device_create(pwm->pwm_class, &pdev->dev,
 						 MKDEV(0, 0), (void *)pwm,
 						 "pwm%d", i);
@@ -414,27 +422,15 @@ static int rtsx_pwm_remove(struct platform_device *pdev)
 	if (WARN_ON(!pwm))
 		return -ENODEV;
 
-	for (i = 0; i < NUM_PWM; i++)
+	for (i = 0; i < pwm->chip.npwm; i++)
 		pwm_writel(pwm, i, XB2_PWM_EN, 0);
 
-	for (i = 0; i < NUM_PWM; i++) {
+	for (i = 0; i < pwm->chip.npwm; i++) {
 		sysfs_remove_group(&pwm->desc[i].dev->kobj, &pwm_attr_group);
 		device_unregister(pwm->desc[i].dev);
 	}
 
 	class_destroy(pwm->pwm_class);
-
-	sleep_state = pinctrl_lookup_state(pwm->pinctrl, PINCTRL_STATE_SLEEP);
-
-	/* Allow pins to be muxed in and configured */
-	if (IS_ERR(sleep_state)) {
-		dev_err(&pdev->dev, "could not get sleep status\n");
-		return PTR_ERR(sleep_state);
-	}
-
-	ret = pinctrl_select_state(pwm->pinctrl, sleep_state);
-	if (ret)
-		dev_err(&pdev->dev, "could not set sleep status\n");
 
 	return ret;
 }

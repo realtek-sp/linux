@@ -33,6 +33,7 @@
 #include <linux/mutex.h>
 #include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
+#include <linux/of.h>
 #include <linux/clk.h>
 #include <linux/io.h>
 
@@ -128,16 +129,14 @@ static struct sensor_device_attribute ad_input[] = {
 
 static int saradc_probe(struct platform_device *pdev)
 {
-	int channels = 4;
+	struct device_node *np = pdev->dev.of_node;
+	struct device_node *pinctrl_node;
+	struct device_node *mux_node;
 	struct saradc *adc;
-	int status;
-	int i;
 	struct resource *r;
-	u32 value;
 	struct clk *pclk;
-	u32 xb2rate;
-	u32 clkin;
-	u32 chansel;
+	int status, i;
+	u32 value, xb2rate, clkin, chansel, num_channels;
 
 	adc = devm_kzalloc(&pdev->dev, sizeof(*adc), GFP_KERNEL);
 	if (!adc)
@@ -150,10 +149,30 @@ static int saradc_probe(struct platform_device *pdev)
 
 	adc_mapped_addr = adc->mmio_base;
 
+	pinctrl_node = of_parse_phandle(np, "pinctrl-0", 0);
+	if (!pinctrl_node) {
+		dev_err(&pdev->dev, "Failed to find pinctrl-0 node\n");
+		return -ENODEV;
+	}
+
+	mux_node = of_get_child_by_name(pinctrl_node, "default_mux");
+	of_node_put(pinctrl_node);
+	if (!mux_node) {
+		dev_err(&pdev->dev, "Failed to find default_mux node\n");
+		return -ENODEV;
+	}
+
+	num_channels = of_property_count_strings(mux_node, "groups");
+	of_node_put(mux_node);
+	if (num_channels < 0) {
+		dev_err(&pdev->dev, "Failed to count groups\n");
+		num_channels = 4;
+	}
+
 	platform_set_drvdata(pdev, adc);
 
 	/* set a default value for the reference */
-	adc->channels = channels;
+	adc->channels = num_channels;
 
 	pclk = clk_get(&pdev->dev, "xb2_ck");
 	if (IS_ERR(pclk)) {
