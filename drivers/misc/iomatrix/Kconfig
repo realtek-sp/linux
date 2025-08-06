@@ -9,4 +9,14 @@ config RTS490XA_HUB
 	  This enables support for RTS490XA HUB. Say Y here to use RTS490XA HUB driver to
 	  configure RTS490XA HUB device.
 
+config MFD_RTS591X_I2C
+	tristate "Realtek RTS591x MFD over I2C"
+	select MFD_CORE
+	depends on I2C
+	select REGMAP_IOMATRIX
+	help
+	  If you say Y here you get support for RTS591x IC.
+	  This driver include only the core APIs. You have to select individual
+	  components like PWM or GPIO under the corresponding menus.
+
 endmenu

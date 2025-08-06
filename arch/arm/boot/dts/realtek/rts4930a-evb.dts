@@ -133,3 +133,12 @@
 		};
 	};
 };
+
+&i2c1 {
+	status = "okay";
+
+	rts493xa-mfd@30 {
+		compatible = "realtek,rts591x-mfd-i2c";
+		reg = <0x30>;
+	};
+};
