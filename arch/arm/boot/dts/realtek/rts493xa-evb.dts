@@ -170,7 +170,7 @@
 			eeprom@64 {
 				compatible = "slave-24c02";
 				reg = <0x40000064>;
-            };
+			};
 		};
 
 		rts591x-i2c3 {
@@ -267,6 +267,12 @@
 					fan-tach-ch = /bits/ 8 <0x03>;
 				};
 			};
+		};
+
+		rts591x-kcs-bmc {
+			compatible = "realtek,rts591x-kcs-bmc";
+			reg = <0x400A021C>;
+			kcs_chan = <1>;
 		};
 	};
 

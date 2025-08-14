@@ -85,6 +85,10 @@ static const struct mfd_cell rts591x_mfd_cells[] = {
 		.name = "rts591x-pwm-tacho",
 		.of_compatible = "realtek,rts591x-pwm-tacho",
 	},
+	{
+		.name = "rts591x-kcs-bmc",
+		.of_compatible = "realtek,rts591x-kcs-bmc",
+	},
 };
 
 static const struct mfd_cell rts591x_mfd_cells_hpm[] = {

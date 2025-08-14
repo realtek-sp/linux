@@ -246,6 +246,12 @@
 				low-pass-filter;
 			};
 		};
+
+		rts591x-kcs-bmc {
+			compatible = "realtek,rts591x-kcs-bmc";
+			reg = <0x400A021C>;
+			kcs_chan = <1>;
+		};
 	};
 
 	rts493xa-mfd@31 {
