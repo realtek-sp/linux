@@ -358,6 +358,13 @@ config GPIO_IMX_SCU
        def_bool y
        depends on IMX_SCU
 
+config GPIO_IOMATRIX
+	tristate "IOMATRIX GPIO support"
+	depends on MFD_RTS591X_I2C
+	help
+	  This enables support for IOMATRIX GPIO. Say Y here to use IOMATRIX GPIO driver to
+	  configure IOMATRIX GPIO device.
+
 config GPIO_IXP4XX
 	bool "Intel IXP4xx GPIO"
 	depends on ARCH_IXP4XX
