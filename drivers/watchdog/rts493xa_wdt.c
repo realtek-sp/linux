@@ -36,17 +36,16 @@
 
 #define WATCHDOG_CFG_REG  0
 #define WATCHDOG_CTL	  0x4
-#define WATCHDOG_INT_EN	  0x4
-#define WATCHDOG_INT_FLAG 0x4
+#define WATCHDOG_INT_EN	  0x8
+#define WATCHDOG_INT_FLAG 0xc
 
-#define WDOG_TIME_2		 16
+#define WDOG_TIME		 16
 #define WDOG_RST_PAD_PUE	 9
 #define WDOG_RST_PAD_PDE	 8
 #define WDOG_RST_PAD_SR_SLOW	 7
 #define WDOG_RST_PAD_DRV_8MA	 6
 #define WDOG_RST_PMU_VOLTAGE_3V3 5
 #define WDOG_RST_PMU_ENABLE	 4
-#define WDOG_TIME		 2
 #define WDOG_RST_EN		 1
 #define WDOG_EN			 0
 
@@ -68,6 +67,7 @@ struct rts_wdt_priv {
 	void __iomem *wdt_reg;
 	struct clk *clk;
 	enum rts_wdt_type devtype;
+	bool external_reset;
 };
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
@@ -87,11 +87,14 @@ static int rts_wdt_start(struct watchdog_device *wdd)
 {
 	struct rts_wdt_priv *priv = watchdog_get_drvdata(wdd);
 
-#ifdef CONFIG_EXTERNAL_RESET
-	rts_set_field(wdt_reg + WATCHDOG_CFG_REG, 1, 1, WDOG_RST_PMU_ENABLE);
-#else
-	rts_set_field(priv->wdt_reg + WATCHDOG_CFG_REG, 1, 1, WDOG_RST_EN);
-#endif
+	if (priv->external_reset) {
+		rts_set_field(priv->wdt_reg + WATCHDOG_CFG_REG, 1, 1,
+			      WDOG_RST_PMU_ENABLE);
+	} else {
+		rts_set_field(priv->wdt_reg + WATCHDOG_CFG_REG, 1, 1,
+			      WDOG_RST_EN);
+	}
+
 	rts_set_field(priv->wdt_reg + WATCHDOG_CFG_REG, 1, 1, WDOG_EN);
 
 	pr_info("Started watchdog timer\n");
@@ -143,7 +146,7 @@ static int rts_wdt_set_timeout(struct watchdog_device *wdd,
 	wdd->timeout = timeout;
 	wdd->max_hw_heartbeat_ms = (1 << time) * 1000 / 2;
 
-	rts_set_field(priv->wdt_reg + WATCHDOG_CFG_REG, time, 3, WDOG_TIME_2);
+	rts_set_field(priv->wdt_reg + WATCHDOG_CFG_REG, time, 3, WDOG_TIME);
 
 	return 0;
 }
@@ -188,6 +191,8 @@ static int rts_wdt_probe(struct platform_device *pdev)
 	priv->wdt_reg = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->wdt_reg))
 		return PTR_ERR(priv->wdt_reg);
+
+	priv->external_reset = device_property_read_bool(dev, "external-reset");
 
 	priv->devtype = (uintptr_t)of_device_get_match_data(dev);
 
