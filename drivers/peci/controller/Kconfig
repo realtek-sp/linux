@@ -32,3 +32,10 @@ config PECI_NPCM
 
 	  This support is also available as a module. If so, the module
 	  will be called peci-npcm.
+
+config PECI_IOMATRIX
+	tristate "IOMATRIX PECI support"
+	depends on MFD_RTS591X_I2C
+	help
+	  This enables support for IOMATRIX PECI. Say Y here to use IOMATRIX PECI driver to
+	  configure IOMATRIX PECI device.

@@ -29,7 +29,12 @@
 
 #include "rts591x-regmap.h"
 
-static const struct mfd_cell rts591x_mfd_cells[] = {};
+static const struct mfd_cell rts591x_mfd_cells[] = {
+	{
+		.name = "rts591x-peci",
+		.of_compatible = "realtek,rts591x-peci",
+	},
+};
 
 static const struct regmap_config rts591x_regmap_config = {
 	.reg_bits = 32,
