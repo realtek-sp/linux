@@ -2259,9 +2259,9 @@ static int rts_gadget_vbus_session(struct usb_gadget *g, int is_active)
 
 	spin_lock_irqsave(&rtsusb->lock, flags);
 	rtsusb->vbuson = (is_active != 0);
-	if (rtsusb->gadgetstart && rtsusb->vbuson)
+	if (rtsusb->gadget_driver)
 		rts_usb_connect(rtsusb);
-	else if (rtsusb->gadgetstart == 0 || !rtsusb->vbuson)
+	else
 		rts_usb_disconnect(rtsusb);
 	spin_unlock_irqrestore(&rtsusb->lock, flags);
 
@@ -2278,9 +2278,9 @@ static int rts_gadget_pullup(struct usb_gadget *g, int is_on)
 	spin_lock_irqsave(&rtsusb->lock, flags);
 
 	rtsusb->gadgetstart = is_on = !!is_on;
-	if (rtsusb->gadgetstart && rtsusb->vbuson)
+	if (rtsusb->gadgetstart)
 		rts_usb_connect(rtsusb);
-	else if (rtsusb->gadgetstart == 0)
+	else
 		rts_usb_disconnect(rtsusb);
 
 	spin_unlock_irqrestore(&rtsusb->lock, flags);

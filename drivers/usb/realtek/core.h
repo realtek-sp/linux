@@ -118,9 +118,9 @@ struct rts_udc {
 	u8 devstatus;
 
 	/* gadget start */
-	u8 gadgetstart;
+	bool gadgetstart;
 	/* vbus on */
-	u8 vbuson;
+	bool vbuson;
 	u32 request_pending;
 
 	unsigned char uvcin_epnum;
