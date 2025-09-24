@@ -24,10 +24,10 @@
 #include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/mfd/core.h>
+#include <linux/mfd/iomatrix.h>
 #include <linux/regmap.h>
 
 #include "rts591x-regmap.h"
-#include "rts591x-mfd.h"
 
 static const struct mfd_cell rts591x_mfd_cells[] = {};
 

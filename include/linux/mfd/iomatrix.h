@@ -21,8 +21,8 @@
  * even if advised of the possibility of such damage.
  */
 
-#ifndef ___RTS591X_MFD_H
-#define ___RTS591X_MFD_H
+#ifndef __IOMATRIX_H
+#define __IOMATRIX_H
 
 #include <linux/regmap.h>
 #include <linux/spinlock.h>
@@ -32,4 +32,4 @@ struct rts591x_mfd_dev {
 	struct regmap *regmap;
 };
 
-#endif /* ___RTS591X_MFD_H */
+#endif /* __IOMATRIX_H */
