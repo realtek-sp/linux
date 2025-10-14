@@ -155,6 +155,7 @@ static const struct of_device_id dw_i2c_of_match[] = {
 	{ .compatible = "baikal,bt1-sys-i2c", .data = (void *)MODEL_BAIKAL_BT1 },
 	{
 		.compatible = "realtek,rts493xa-i2c",
+		.data = (void *)IC_EMPTYFIFO_HOLD_MASTER_EN,
 	},
 	{},
 };

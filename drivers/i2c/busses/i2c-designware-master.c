@@ -483,6 +483,22 @@ i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 		if (!(dev->status & STATUS_WRITE_IN_PROGRESS)) {
 			/* new i2c_msg */
 			buf = msgs[dev->msg_write_idx].buf;
+
+			/* For IC_EMPTYFIFO_HOLD_MASTER_EN = 1.
+			 * During an SMBus block read, when acquiring the data
+			 * count, the master will hold SCL low because the TX
+			 * FIFO is empty.
+			 * As a software workaround, instead of the default
+			 * setting of msg[1].len = 1, set msg[1].len = 2 when
+			 * obtaining the data length to ensure it can be read
+			 * correctly.
+			 */
+			if (dev->flags & IC_EMPTYFIFO_HOLD_MASTER_EN) {
+				if (flags & I2C_M_RECV_LEN &&
+				    msgs[dev->msg_write_idx].len == 1)
+					msgs[dev->msg_write_idx].len = 2;
+			}
+
 			buf_len = msgs[dev->msg_write_idx].len;
 
 			/* If both IC_EMPTYFIFO_HOLD_MASTER_EN and
@@ -589,6 +605,19 @@ i2c_dw_recv_len(struct dw_i2c_dev *dev, u8 len)
 	 */
 	len += (flags & I2C_CLIENT_PEC) ? 2 : 1;
 	dev->tx_buf_len = len - min_t(u8, len, dev->rx_outstanding);
+
+	/*
+	 * Send one additional command when the data count is 0/1 as a
+	 * workaround for the issue where the master holds the SCL line
+	 * low during SMBus block data read.
+	 */
+	if (dev->flags & IC_EMPTYFIFO_HOLD_MASTER_EN) {
+		if (dev->tx_buf_len == 0) {
+			len++;
+			dev->tx_buf_len++;
+		}
+	}
+
 	msgs[dev->msg_read_idx].len = len;
 	msgs[dev->msg_read_idx].flags &= ~I2C_M_RECV_LEN;
 
