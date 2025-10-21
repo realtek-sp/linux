@@ -671,10 +671,16 @@ i2c_dw_read(struct dw_i2c_dev *dev)
 				 * another byte with STOP bit set when the block data
 				 * response length is invalid to complete the transaction.
 				 */
-				if (!tmp || tmp > I2C_SMBUS_BLOCK_MAX)
-					tmp = 1;
+				u32 recv_len = tmp;
 
-				len = i2c_dw_recv_len(dev, tmp);
+				if (!tmp) {
+					recv_len = 1;
+				} else if (tmp > I2C_SMBUS_BLOCK_MAX) {
+					recv_len = 1;
+					tmp = 1;
+				}
+
+				len = i2c_dw_recv_len(dev, recv_len);
 			}
 			*buf++ = tmp;
 			dev->rx_outstanding--;
