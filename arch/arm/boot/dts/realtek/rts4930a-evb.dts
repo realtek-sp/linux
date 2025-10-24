@@ -162,4 +162,9 @@
 
 &i2c1 {
 	status = "okay";
+
+	ssif-bmc@10 {
+		compatible = "ssif-bmc";
+		reg = <0x40000010>;
+	};
 };
