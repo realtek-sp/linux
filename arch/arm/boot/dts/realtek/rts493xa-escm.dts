@@ -1,8 +1,8 @@
 #include "rts4930a.dtsi"
 
 / {
-	model = "RTS4930A EVB";
-	compatible = "realtek,rts4930a-evb","realtek,rts493xa";
+	model = "RTS493xA ESCM";
+	compatible = "realtek,rts493xa-escm","realtek,rts493xa";
 
 	#address-cells = <1>;
 	#size-cells = <1>;
@@ -28,46 +28,29 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		global@0 {
-			label = "global";
-			reg = <0x000000 0x8000000>; //flash size, 128M
-			type = "nor";
-			sector_size = <0x10000>;
-		};
-
 		partition@0 {
 			label = "u-boot";
-			reg = <0x00000 0xC0000>; //8*64K for uboot
+			reg = <0x00000 0x180000>; //24*64K for uboot
 		};
 
-		partition@C00000 {
+		partition@180000 {
 			label = "uboot-env";
-			reg = <0xC0000 0x40000>; //4*64K for uboot env
+			reg = <0x180000 0x80000>; //8*64K for uboot env
 		};
 
-		partition@100000 {
+		partition@200000 {
 			label = "kernel";
-			reg = <0x100000 0x500000>;
+			reg = <0x200000 0x880000>; // 68*128K
 		};
 
-		partition@600000 {
+		partition@a80000 {
 			label = "rofs";
-			reg = <0x600000 0x2800000>;
+			reg = <0xa80000 0xb600000>; //1456*128K
 		};
 
-		partition@2E00000 {
-			label = "kernel_b";
-			reg = <0x2E00000 0x500000>;
-		};
-
-		partition@3300000 {
-			label = "rofs_b";
-			reg = <0x3300000 0x2800000>;
-		};
-
-		partition@5B00000 {
+		partition@c080000 {
 			label = "rwfs";
-			reg = <0x5B00000 0x2500000>;
+			reg = <0xc080000 0x3f80000>; //508*128K
 		};
 	};
 };
@@ -83,13 +66,19 @@
 	status = "okay";
 };
 
-&uart2 {
-	status = "okay";
-	current-speed = <57600>;
-};
-
 &i2c0 {
 	status = "okay";
+
+	rts493xa-mfd@30 {
+		compatible = "realtek,rts591x-mfd-i2c";
+		reg = <0x30>;
+
+		peci {
+			compatible = "realtek,rts591x-peci";
+			reg = <0x400a0000>;
+			status = "okay";
+		};
+	};
 
 	rts490xa-hub@70 {
 		compatible = "realtek,rts490xa-hub";
@@ -129,7 +118,7 @@
 			};
 		};
 
-		target-port@2 {
+		target-port@4 {
 			mode = "smbus";
 			pullup = "enabled";
 			backend@0,0 {
@@ -138,7 +127,7 @@
 			};
 		};
 
-		target-port@3 {
+		target-port@5 {
 			mode = "smbus";
 			pullup = "enabled";
 			backend@0,0 {
@@ -146,5 +135,29 @@
 				target-reg = <0x10>;
 			};
 		};
+	};
+};
+
+&pinctrl {
+	gpio-line-names =
+	"", "", "", "", "", "", "", "", // 0~7
+	"PGOOD", "",  // 8,9
+	"CHASSIS_INTRUSION",                    // 10
+	"", "", "", "", "", "", "", "", "", "",  // 11~20
+	"", "", "", "", "", "", "", "", "", "",  // 21~30
+	"", "", "", "", "", "", "", "", "", "",  // 31~40
+	"", "", "", "", "", "", "", "", "", "",  // 41~50
+	"", "", "", "", "", "", "", "", "", "",  // 51~60
+	"", "", "", "", "", "", "", "", "", "",  // 61~70
+	"", "", "", "", "", "", "", "", "", "",  // 71~80
+	"", "", "", "", "", "", "", "", "";      // 81~88
+};
+
+&i2c1 {
+	status = "okay";
+
+	ssif-bmc@10 {
+		compatible = "ssif-bmc";
+		reg = <0x40000010>;
 	};
 };

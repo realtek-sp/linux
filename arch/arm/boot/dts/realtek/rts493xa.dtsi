@@ -30,9 +30,6 @@
 	};
 
 	clocks {
-		#address-cells = <1>;
-		#size-cells = <0>;
-
 		soc_clk25mhz: oscillator {
 			compatible = "fixed-clock";
 			clock-output-names = "clk25mhz";
@@ -141,8 +138,6 @@
 
 		spi0: spic@18030000 {
 			compatible = "realtek,rts493xa-quadspi";
-			#address-cells = <1>;
-			#size-cells = <0>;
 			bus_num = <0>;
 			reg = <0x18030000 0x10000>, <0x18860080 0x28>;
 			clocks = <&clks RLX_CLK_DRAM_CK>;

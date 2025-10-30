@@ -1,8 +1,8 @@
 #include "rts4930a.dtsi"
 
 / {
-	model = "RTS4930A EVB";
-	compatible = "realtek,rts4930a-evb","realtek,rts493xa";
+	model = "RTS493xA EVB";
+	compatible = "realtek,rts493xa-evb","realtek,rts493xa";
 
 	#address-cells = <1>;
 	#size-cells = <1>;
@@ -28,19 +28,12 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		global@0 {
-			label = "global";
-			reg = <0x000000 0x8000000>; //flash size, 128M
-			type = "nor";
-			sector_size = <0x10000>;
-		};
-
 		partition@0 {
 			label = "u-boot";
-			reg = <0x00000 0xC0000>; //8*64K for uboot
+			reg = <0x00000 0xC0000>; //12*64K for uboot
 		};
 
-		partition@C00000 {
+		partition@c0000 {
 			label = "uboot-env";
 			reg = <0xC0000 0x40000>; //4*64K for uboot env
 		};

@@ -1,0 +1,143 @@
+#include "rts4930a.dtsi"
+
+/ {
+	model = "RTS493xA EVB";
+	compatible = "realtek,rts493xa-evb","realtek,rts493xa";
+
+	#address-cells = <1>;
+	#size-cells = <1>;
+	interrupt-parent = <&gic>;
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x8000000>;
+	};
+
+	chosen {
+		bootargs = "console=ttyS1,57600 init=/sbin/init earlyprintk rootfstype=squashfs user_debug=31";
+		stdout-path = &uart1;
+	};
+};
+
+&spi0 {
+	status = "okay";
+	spi-transfer-channel = "quad";
+	swp_enable;
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 {
+			label = "u-boot";
+			reg = <0x00000 0xC0000>; //8*64K for uboot
+		};
+
+		partition@C00000 {
+			label = "uboot-env";
+			reg = <0xC0000 0x40000>; //4*64K for uboot env
+		};
+
+		partition@100000 {
+			label = "kernel";
+			reg = <0x100000 0x500000>;
+		};
+
+		partition@600000 {
+			label = "rofs";
+			reg = <0x600000 0x2800000>;
+		};
+
+		partition@2E00000 {
+			label = "kernel_b";
+			reg = <0x2E00000 0x500000>;
+		};
+
+		partition@3300000 {
+			label = "rofs_b";
+			reg = <0x3300000 0x2800000>;
+		};
+
+		partition@5B00000 {
+			label = "rwfs";
+			reg = <0x5B00000 0x2500000>;
+		};
+	};
+};
+
+&leds {
+	ledbmc: identify {
+		gpios = <&pinctrl 26 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+};
+
+&uart0 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+	current-speed = <57600>;
+};
+
+&i2c0 {
+	status = "okay";
+
+	rts490xa-hub@70 {
+		compatible = "realtek,rts490xa-hub";
+		reg = <0x70>;
+
+		cp0-ldo-en = "enabled";
+		cp1-ldo-en = "enabled";
+		cp0-ldo-volt = "1.8V";
+		cp1-ldo-volt = "1.8V";
+		tp0145-ldo-en = "enabled";
+		tp2367-ldo-en = "enabled";
+		tp0145-ldo-volt = "1.8V";
+		tp2367-ldo-volt = "1.8V";
+		tp0145-pullup = "500R";
+		tp2367-pullup = "500R";
+		tp0145-io-strength = "30Ohms";
+		tp2367-io-strength = "30Ohms";
+		cp0-io-strength = "20Ohms";
+		cp1-io-strength = "20Ohms";
+
+		target-port@0 {
+			mode = "smbus";
+			pullup = "enabled";
+			mctp-controller;
+			backend@0,0 {
+				compatible = "mctp-i2c-controller";
+				target-reg = <0x10>;
+			};
+		};
+
+		target-port@1 {
+			mode = "smbus";
+			pullup = "enabled";
+			backend@0,0 {
+				compatible = "slave-mqueue";
+				target-reg = <0x10>;
+			};
+		};
+
+		target-port@2 {
+			mode = "smbus";
+			pullup = "enabled";
+			backend@0,0 {
+				compatible = "slave-mqueue";
+				target-reg = <0x10>;
+			};
+		};
+
+		target-port@3 {
+			mode = "smbus";
+			pullup = "enabled";
+			backend@0,0 {
+				compatible = "slave-mqueue";
+				target-reg = <0x10>;
+			};
+		};
+	};
+};

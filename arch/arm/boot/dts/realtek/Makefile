@@ -2,5 +2,6 @@
 dtb-$(CONFIG_ARCH_REALTEK) += \
 	rtd1195-horseradish.dtb \
 	rtd1195-mele-x1000.dtb \
-	rts4930a-evb.dtb \
-	rts4930a-dual-evb.dtb
+	rts493xa-escm.dtb \
+	rts493xa-evb.dtb \
+	rts493xa-dual-evb.dtb
