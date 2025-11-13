@@ -18,6 +18,60 @@
 
 #include "i2c-designware-core.h"
 
+#if IS_ENABLED(CONFIG_I2C_DESIGNWARE_SLAVE_ALERT)
+#include <linux/gpio/consumer.h>
+#define ARA_ADDR	(0x0C)
+
+static int i2c_dw_slave_alert_handler(struct i2c_client *client,
+		bool gpio_assert)
+{
+	struct dw_i2c_dev *dw_dev = i2c_get_adapdata(client->adapter);
+
+	__i2c_dw_disable_nowait(dw_dev);
+	regmap_write(dw_dev->map, DW_IC_SAR, client->addr);
+	__i2c_dw_enable(dw_dev);
+
+	gpiod_set_value(dw_dev->alert_gpiod, gpio_assert);
+
+	return 0 ;
+}
+
+static int i2c_dw_slave_alert_assert(struct i2c_client *client)
+{
+	struct dw_i2c_dev *dw_dev = i2c_get_adapdata(client->adapter);
+
+	dw_dev->i2c_addr_bk = client->addr;
+	client->addr = ARA_ADDR;
+
+	return i2c_dw_slave_alert_handler(client, 1);
+}
+
+static int i2c_dw_slave_alert_deassert(struct i2c_client *client)
+{
+	struct dw_i2c_dev *dw_dev = i2c_get_adapdata(client->adapter);
+
+	client->addr = dw_dev->i2c_addr_bk;
+
+	return i2c_dw_slave_alert_handler(client, 0);
+}
+
+static int i2c_dw_slave_alert_init(struct i2c_client *client)
+{
+	struct dw_i2c_dev *dw_dev = i2c_get_adapdata(client->adapter);
+
+	dw_dev->alert_gpiod = devm_gpiod_get_index(&client->dev,
+			"alert", 0, GPIOD_OUT_LOW);
+	if (IS_ERR(dw_dev->alert_gpiod)) {
+		dev_err(dw_dev->dev,
+				"failed to get alert-gpio: %ld\n",
+				PTR_ERR(dw_dev->alert_gpiod));
+		return PTR_ERR(dw_dev->alert_gpiod);
+	}
+
+	return 0;
+}
+#endif
+
 static void i2c_dw_configure_fifo_slave(struct dw_i2c_dev *dev)
 {
 	/* Configure Tx/Rx FIFO threshold levels. */
@@ -66,6 +120,17 @@ static int i2c_dw_reg_slave(struct i2c_client *slave)
 		return -EBUSY;
 	if (slave->flags & I2C_CLIENT_TEN)
 		return -EAFNOSUPPORT;
+
+#if IS_ENABLED(CONFIG_I2C_DESIGNWARE_SLAVE_ALERT)
+	int ret;
+
+	ret = i2c_dw_slave_alert_init(slave);
+	if (ret) {
+		dev_err(dev->dev, "failure getting alert_gpiod: %d\n", ret);
+		return ret;
+	}
+#endif
+
 	pm_runtime_get_sync(dev->dev);
 
 	/*
@@ -192,9 +257,18 @@ static irqreturn_t i2c_dw_isr_slave(int this_irq, void *dev_id)
 			regmap_read(dev->map, DW_IC_CLR_RD_REQ, &tmp);
 
 			if (!(dev->status & STATUS_READ_IN_PROGRESS)) {
+#if IS_ENABLED(CONFIG_I2C_DESIGNWARE_SLAVE_ALERT)
+				if (dev->slave->addr == ARA_ADDR)
+					val = dev->i2c_addr_bk << 1;
+				else
+					i2c_slave_event(dev->slave,
+							I2C_SLAVE_READ_REQUESTED,
+							&val);
+#else
 				i2c_slave_event(dev->slave,
 						I2C_SLAVE_READ_REQUESTED,
 						&val);
+#endif
 				dev->status |= STATUS_READ_IN_PROGRESS;
 				dev->status &= ~STATUS_WRITE_IN_PROGRESS;
 			} else {
@@ -206,8 +280,18 @@ static irqreturn_t i2c_dw_isr_slave(int this_irq, void *dev_id)
 		}
 	}
 
-	if (stat & DW_IC_INTR_STOP_DET)
+	if (stat & DW_IC_INTR_STOP_DET) {
+#if IS_ENABLED(CONFIG_I2C_DESIGNWARE_SLAVE_ALERT)
+		if (dev->slave->addr == ARA_ADDR)
+			i2c_dw_slave_alert_deassert(dev->slave);
+		else
+			i2c_slave_event(dev->slave, I2C_SLAVE_STOP, &val);
+#else
 		i2c_slave_event(dev->slave, I2C_SLAVE_STOP, &val);
+#endif
+		dev->status &= ~STATUS_WRITE_IN_PROGRESS;
+		dev->status &= ~STATUS_READ_IN_PROGRESS;
+	}
 
 	return IRQ_HANDLED;
 }
@@ -216,6 +300,9 @@ static const struct i2c_algorithm i2c_dw_algo = {
 	.functionality = i2c_dw_func,
 	.reg_slave = i2c_dw_reg_slave,
 	.unreg_slave = i2c_dw_unreg_slave,
+#if IS_ENABLED(CONFIG_I2C_DESIGNWARE_SLAVE_ALERT)
+	.slave_smbalert_emulate = i2c_dw_slave_alert_assert,
+#endif
 };
 
 void i2c_dw_configure_slave(struct dw_i2c_dev *dev)

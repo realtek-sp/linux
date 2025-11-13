@@ -300,6 +300,10 @@ struct dw_i2c_dev {
 	int			(*set_sda_hold_time)(struct dw_i2c_dev *dev);
 	int			mode;
 	struct i2c_bus_recovery_info rinfo;
+#if IS_ENABLED(CONFIG_I2C_DESIGNWARE_SLAVE_ALERT)
+	unsigned short		i2c_addr_bk; /* chip address - NOTE: 7bit */
+	struct gpio_desc	*alert_gpiod;
+#endif
 };
 
 #define ACCESS_INTR_MASK			BIT(0)

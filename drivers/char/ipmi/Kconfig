@@ -180,6 +180,14 @@ config SSIF_IPMI_BMC
 	  The driver implements the BMC side of the SMBus system
 	  interface (SSIF).
 
+config SSIF_IPMI_BMC_ALERT
+	tristate "SSIF IPMI BMC ALERT"
+	depends on SSIF_IPMI_BMC
+	depends on I2C_SLAVE_SMBALERT_EMULATE
+	help
+	  This enables the SMBus Alert over a GPIO line for the IPMI
+	  SMBus system interface (SSIF) at the management (BMC) side.
+
 config IPMB_DEVICE_INTERFACE
 	tristate 'IPMB Interface handler'
 	depends on I2C

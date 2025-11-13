@@ -555,6 +555,13 @@ config I2C_DESIGNWARE_SLAVE
 	  This is not a standalone module, this module compiles together with
 	  i2c-designware-core.
 
+config I2C_DESIGNWARE_SLAVE_ALERT
+	bool "Synopsys DesignWare Slave Alert"
+	depends on I2C_SLAVE_SMBALERT_EMULATE
+	depends on I2C_DESIGNWARE_SLAVE && GPIOLIB
+	help
+	  This enables the SMBus Alert over a GPIO line.
+
 config I2C_DESIGNWARE_PLATFORM
 	tristate "Synopsys DesignWare Platform"
 	depends on (ACPI && COMMON_CLK) || !ACPI

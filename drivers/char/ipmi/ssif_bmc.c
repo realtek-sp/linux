@@ -188,6 +188,19 @@ static ssize_t ssif_bmc_write(struct file *file, const char __user *buf, size_t 
 	    count < sizeof_field(struct ipmi_ssif_msg, len) + msg.len)
 		return -EINVAL;
 
+#if IS_ENABLED(CONFIG_SSIF_IPMI_BMC_ALERT)
+	if (ssif_bmc->client->adapter->algo->slave_smbalert_emulate) {
+		ret = ssif_bmc->client->adapter->algo->slave_smbalert_emulate(
+				ssif_bmc->client);
+		if (ret) {
+			dev_err(&ssif_bmc->client->dev,
+					"smbalert_emulate error, ret %d\n",
+					ret);
+			return ret;
+		}
+	}
+#endif
+
 	spin_lock_irqsave(&ssif_bmc->lock, flags);
 	while (ssif_bmc->response_in_progress) {
 		spin_unlock_irqrestore(&ssif_bmc->lock, flags);
@@ -721,9 +734,16 @@ static void on_stop_event(struct ssif_bmc_ctx *ssif_bmc, u8 *val)
 	    ssif_bmc->state == SSIF_START ||
 	    ssif_bmc->state == SSIF_SMBUS_CMD ||
 	    ssif_bmc->state == SSIF_ABORTING) {
-		dev_warn(&ssif_bmc->client->dev,
-			 "Warn: %s unexpected SLAVE STOP in state=%s\n",
-			 __func__, state_to_string(ssif_bmc->state));
+		/* Fixme:
+		 * When testing SSIF, we see many warnings: "Warn: on_stop_event
+		 * unexpected SLAVE STOP in state=SSIF_READY". Since this func
+		 * is invoked from the interrupt handler, printing in that
+		 *  context can cause anomalies. So we'll comment out this line
+		 * for now and revisit the issue later.
+		 */
+		//dev_warn(&ssif_bmc->client->dev,
+		//	 "Warn: %s unexpected SLAVE STOP in state=%s\n",
+		//	 __func__, state_to_string(ssif_bmc->state));
 		ssif_bmc->state = SSIF_READY;
 
 	} else if (ssif_bmc->state == SSIF_REQ_RECVING) {

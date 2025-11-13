@@ -565,6 +565,9 @@ struct i2c_algorithm {
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	int (*reg_slave)(struct i2c_client *client);
 	int (*unreg_slave)(struct i2c_client *client);
+#if IS_ENABLED(CONFIG_I2C_SLAVE_SMBALERT_EMULATE)
+	int (*slave_smbalert_emulate)(struct i2c_client *client);
+#endif
 #endif
 };
 

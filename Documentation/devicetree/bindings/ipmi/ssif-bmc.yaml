@@ -19,6 +19,12 @@ properties:
   reg:
     maxItems: 1
 
+  alert-gpio:
+    description: >
+      SMBus alert (SMBALERT#) signal associated with the SSIF BMC device.
+      Typical active-low. Use GPIO_ACTIVE_LOW if asserted low.
+    maxItems: 1
+
 required:
   - compatible
   - reg
@@ -34,5 +40,6 @@ examples:
         ssif-bmc@10 {
             compatible = "ssif-bmc";
             reg = <0x10>;
+            alert-gpio = <&pinctrl 58 GPIO_ACTIVE_LOW>;
         };
     };

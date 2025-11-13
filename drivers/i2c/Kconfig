@@ -142,6 +142,13 @@ config I2C_SLAVE_TESTUNIT
 	  multi-master, SMBus Host Notify, etc. Please read
 	  Documentation/i2c/slave-testunit-backend.rst for further details.
 
+config I2C_SLAVE_SMBALERT_EMULATE
+	bool "I2C slave smbus alert emulate"
+	depends on I2C_SLAVE
+	help
+	  Say Y here if you want to use the slave_smbalert_emulate method
+	  in i2c_algorithm.
+
 endif
 
 config I2C_DEBUG_CORE
