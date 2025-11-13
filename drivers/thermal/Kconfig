@@ -427,6 +427,7 @@ config DA9062_THERMAL
 config RTS493XA_THERMAL
 	tristate "rts thermal"
 	depends on THERMAL
+	select THERMAL_GOV_BANG_BANG
 	default n
 	help
 	  Enable this option if you want to have support for thermal management
