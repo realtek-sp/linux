@@ -11,9 +11,10 @@ config RTS490XA_HUB
 
 config MFD_RTS591X_I2C
 	tristate "Realtek RTS591x MFD over I2C"
-	select MFD_CORE
 	depends on I2C
+	select MFD_CORE
 	select REGMAP_IOMATRIX
+	select REGMAP_IRQ
 	help
 	  If you say Y here you get support for RTS591x IC.
 	  This driver include only the core APIs. You have to select individual

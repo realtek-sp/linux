@@ -21,10 +21,12 @@
  * even if advised of the possibility of such damage.
  */
 
-#include <linux/module.h>
+#include <linux/bits.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/mfd/core.h>
 #include <linux/mfd/iomatrix.h>
+#include <linux/module.h>
 #include <linux/regmap.h>
 
 #include "rts591x-regmap.h"
@@ -39,6 +41,34 @@ static const struct mfd_cell rts591x_mfd_cells[] = {
 static const struct regmap_config rts591x_regmap_config = {
 	.reg_bits = 32,
 	.val_bits = 32,
+};
+
+static const struct regmap_irq rts591x_irqs[] = {
+	REGMAP_IRQ_REG(RTS591X_I2CSLV_PENDING_READ_INT, 0,
+		       RTS591X_I2CSLV_PENDING_READ_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_KCS_IBF_INT, 0, RTS591X_KCS_IBF_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C0_INT, 0, RTS591X_I2C0_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C1_INT, 0, RTS591X_I2C1_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C2_INT, 0, RTS591X_I2C2_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C3_INT, 0, RTS591X_I2C3_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C4_INT, 0, RTS591X_I2C4_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C5_INT, 0, RTS591X_I2C5_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C6_INT, 0, RTS591X_I2C6_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_I2C7_INT, 0, RTS591X_I2C7_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_TACHO0_INT, 0, RTS591X_TACHO0_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_TACHO1_INT, 0, RTS591X_TACHO1_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_TACHO2_INT, 0, RTS591X_TACHO2_INT_MASK),
+	REGMAP_IRQ_REG(RTS591X_TACHO3_INT, 0, RTS591X_TACHO3_INT_MASK),
+};
+
+static const struct regmap_irq_chip rts591x_irq_chip = {
+	.name = "rts591x_irq",
+	.irqs = rts591x_irqs,
+	.num_irqs = ARRAY_SIZE(rts591x_irqs),
+	.num_regs = 1,
+	.status_base = RTS591X_IRQ_STAT_BASE,
+	.ack_base = RTS591X_IRQ_STAT_BASE,
+	.ack_invert = true,
 };
 
 static int rts591x_mfd_probe(struct i2c_client *client)
@@ -63,9 +93,23 @@ static int rts591x_mfd_probe(struct i2c_client *client)
 		return ret;
 	}
 
+	mfd_dev->irq_gpio = devm_gpiod_get_optional(dev, "mfd", GPIOD_IN);
+	if (IS_ERR(mfd_dev->irq_gpio))
+		return dev_err_probe(dev, PTR_ERR(mfd_dev->irq_gpio),
+				     "Failed to request rts591x mfd gpio");
+
+	ret = devm_regmap_add_irq_chip(mfd_dev->dev, mfd_dev->regmap,
+				       gpiod_to_irq(mfd_dev->irq_gpio),
+				       IRQF_TRIGGER_FALLING | IRQF_ONESHOT, 0,
+				       &rts591x_irq_chip, &mfd_dev->irq_data);
+	if (ret) {
+		dev_err(dev, "Failed to add rts591x_irq_chip %d\n", ret);
+		return ret;
+	}
+
 	ret = devm_mfd_add_devices(dev, PLATFORM_DEVID_NONE, rts591x_mfd_cells,
 				   ARRAY_SIZE(rts591x_mfd_cells), NULL, 0,
-				   NULL);
+				   regmap_irq_get_domain(mfd_dev->irq_data));
 	if (ret) {
 		dev_err(dev, "Failed to add MFD child devices: %d\n", ret);
 		return ret;
