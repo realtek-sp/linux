@@ -359,6 +359,11 @@ static int init_core_mask(struct peci_cputemp *priv)
 	u32 data;
 	int ret;
 
+	if (!reg) {
+		dev_warn(priv->dev, "Not support resolved_cores\n");
+		return -EOPNOTSUPP;
+	}
+
 	/* Get the RESOLVED_CORES register value */
 	switch (peci_dev->info.model) {
 	case INTEL_FAM6_ICELAKE_X:
@@ -576,6 +581,12 @@ static const struct cpu_info cpu_grr = {
 	.thermal_margin_to_millidegree = &dts_ten_dot_six_to_millidegree,
 };
 
+static const struct cpu_info cpu_rpl = {
+	.reg = NULL,
+	.min_peci_revision = 0x33,
+	.thermal_margin_to_millidegree = &dts_ten_dot_six_to_millidegree,
+};
+
 static const struct auxiliary_device_id peci_cputemp_ids[] = {
 	{
 		.name = "peci_cpu.cputemp.hsx",
@@ -608,6 +619,22 @@ static const struct auxiliary_device_id peci_cputemp_ids[] = {
 	{
 		.name = "peci_cpu.cputemp.grr",
 		.driver_data = (kernel_ulong_t)&cpu_grr,
+	},
+	{
+		.name = "peci_cpu.cputemp.adl",
+		.driver_data = (kernel_ulong_t)&cpu_rpl,
+	},
+	{
+		.name = "peci_cpu.cputemp.adll",
+		.driver_data = (kernel_ulong_t)&cpu_rpl,
+	},
+	{
+		.name = "peci_cpu.cputemp.rpl",
+		.driver_data = (kernel_ulong_t)&cpu_rpl,
+	},
+	{
+		.name = "peci_cpu.cputemp.rplp",
+		.driver_data = (kernel_ulong_t)&cpu_rpl,
 	},
 	{}
 };

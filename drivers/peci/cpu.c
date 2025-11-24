@@ -333,6 +333,26 @@ static const struct peci_device_id peci_cpu_device_ids[] = {
 		.model	= INTEL_FAM6_ATOM_CRESTMONT,
 		.data	= "grr",
 	},
+	{ /* Alder Lake */
+		.family	= 6,
+		.model	= INTEL_FAM6_ALDERLAKE,
+		.data	= "adl",
+	},
+	{ /* Alder Lake L*/
+		.family	= 6,
+		.model	= INTEL_FAM6_ALDERLAKE_L,
+		.data	= "adll",
+	},
+	{ /* Raptor Lake */
+		.family	= 6,
+		.model	= INTEL_FAM6_RAPTORLAKE,
+		.data	= "rpl",
+	},
+	{ /* Raptor Lake P */
+		.family	= 6,
+		.model	= INTEL_FAM6_RAPTORLAKE_P,
+		.data	= "rplp",
+	},
 	{ }
 };
 MODULE_DEVICE_TABLE(peci, peci_cpu_device_ids);
