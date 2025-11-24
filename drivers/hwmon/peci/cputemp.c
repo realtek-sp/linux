@@ -539,6 +539,13 @@ static struct resolved_cores_reg resolved_cores_reg_spr = {
 	.offset = 0x80,
 };
 
+static struct resolved_cores_reg resolved_cores_reg_grr = {
+	.bus = 30,
+	.dev = 5,
+	.func = 0,
+	.offset = 0x1e8,
+};
+
 static const struct cpu_info cpu_hsx = {
 	.reg		= &resolved_cores_reg_hsx,
 	.min_peci_revision = 0x33,
@@ -559,6 +566,12 @@ static const struct cpu_info cpu_icx = {
 
 static const struct cpu_info cpu_spr = {
 	.reg		= &resolved_cores_reg_spr,
+	.min_peci_revision = 0x40,
+	.thermal_margin_to_millidegree = &dts_ten_dot_six_to_millidegree,
+};
+
+static const struct cpu_info cpu_grr = {
+	.reg = &resolved_cores_reg_grr,
 	.min_peci_revision = 0x40,
 	.thermal_margin_to_millidegree = &dts_ten_dot_six_to_millidegree,
 };
@@ -592,7 +605,11 @@ static const struct auxiliary_device_id peci_cputemp_ids[] = {
 		.name = "peci_cpu.cputemp.spr",
 		.driver_data = (kernel_ulong_t)&cpu_spr,
 	},
-	{ }
+	{
+		.name = "peci_cpu.cputemp.grr",
+		.driver_data = (kernel_ulong_t)&cpu_grr,
+	},
+	{}
 };
 MODULE_DEVICE_TABLE(auxiliary, peci_cputemp_ids);
 

@@ -328,6 +328,11 @@ static const struct peci_device_id peci_cpu_device_ids[] = {
 		.model	= INTEL_FAM6_SAPPHIRERAPIDS_X,
 		.data	= "spr",
 	},
+	{ /* Grand Ridge */
+		.family	= 6,
+		.model	= INTEL_FAM6_ATOM_CRESTMONT,
+		.data	= "grr",
+	},
 	{ }
 };
 MODULE_DEVICE_TABLE(peci, peci_cpu_device_ids);
