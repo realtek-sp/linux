@@ -523,6 +523,7 @@ static const struct peci_controller_ops rts591x_ops = {
 static int rts591x_peci_probe(struct platform_device *pdev)
 {
 	int ret;
+	struct peci_controller *controller;
 	struct device *dev = &pdev->dev;
 	struct device *parent = dev->parent;
 	struct rts591x_mfd_dev *mfd_dev;
@@ -565,10 +566,12 @@ static int rts591x_peci_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	priv->controller = devm_peci_controller_add(priv->dev, &rts591x_ops);
-	if (IS_ERR(priv->controller))
-		return dev_err_probe(dev, PTR_ERR(priv->controller),
-				     "failed to add aspeed peci controller\n");
+	controller = devm_peci_controller_add(priv->dev, &rts591x_ops);
+	if (IS_ERR(controller))
+		return dev_err_probe(dev, PTR_ERR(controller),
+				     "failed to add rts591x peci controller\n");
+
+	priv->controller = controller;
 
 	return 0;
 }
