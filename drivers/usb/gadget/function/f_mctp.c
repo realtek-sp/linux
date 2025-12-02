@@ -23,35 +23,30 @@
  * even if advised of the possibility of such damage.
  */
 
-#include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/device.h>
-#include <linux/usb/composite.h>
+#include <linux/cdev.h>
 #include <linux/configfs.h>
+#include <linux/device.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/netdevice.h>
+#include <linux/usb/composite.h>
+#include <linux/usb/gadget.h>
+#include <linux/usb/mctp-usb.h>
+#include <uapi/linux/if_arp.h>
 #include <net/mctp.h>
 #include <net/mctpdevice.h>
-#include <linux/mutex.h>
-#include <linux/kthread.h>
-#include <linux/cdev.h>
-#include <uapi/linux/if_arp.h>
 #include <net/pkt_sched.h>
-#include <linux/usb/gadget.h>
 
-#include "u_fs.h"
-#include "u_f.h"
 #include "configfs.h"
+#include "u_f.h"
+#include "u_fs.h"
 
 #define USB_SUBCLASS_MCTP_MGMT 0x00
 #define USB_SUBCLASS_MCTP_HOST 0x01
 #define USB_PROTOCOL_MCTP_1X   0x01
-#define PHYSICAL_ADDR_SIZE     2
 #define STATUS_BYTECOUNT       4
-#define MCTP_USB_XFER_SIZE     512
-#define MCTP_USB_BTU	       68 /* base mtu (64) + mctp header */
-#define MCTP_USB_MTU_MIN       MCTP_USB_BTU
-#define MCTP_USB_MTU_MAX       (U8_MAX - sizeof(struct mctp_usb_hdr))
-#define MCTP_USB_DMTF_ID       0x1AB4
 #define MCTP_USB_TX_WORK_LEN   1000
 
 /**
@@ -71,35 +66,21 @@ struct f_mctp_opts {
 };
 
 /*-------------------------------------------------------------------------*/
-/*                            MCTP gadget struct                            */
+/*                            MCTP gadget struct                           */
 
 struct f_mctpg_req_list {
 	struct usb_request *req;
 	struct list_head list;
 };
 
-/**
- * struct mctp_usb_hdr - Header structure for MCTP over USB packets
- * @id: Vendor ID (0x1AB4 for DMTF)
- * @rsvd: Reserved byte
- * @len: Total packet length including header
- */
-struct mctp_usb_hdr {
-	__be16 id;
-	u8 rsvd;
-	u8 len;
-} __packed;
-
 struct f_mctpg {
 	struct list_head completed_out_req;
 	spinlock_t out_spinlock;
 	unsigned int out_qlen;
 
-	spinlock_t int_spinlock;
 	spinlock_t in_spinlock;
 	bool write_pending;
 	struct usb_request *bulk_in_req;
-	struct usb_request *int_in_req;
 
 	struct net_device *netdev;
 	bool bound;
@@ -107,7 +88,6 @@ struct f_mctpg {
 
 	struct usb_ep *bulk_in_ep;
 	struct usb_ep *bulk_out_ep;
-	struct usb_ep *int_in_ep;
 	struct work_struct rx_work;
 	struct sk_buff_head tx_queue;
 	wait_queue_head_t tx_wq;
@@ -135,21 +115,10 @@ static struct usb_interface_descriptor mctpg_interface_desc = {
 	.bLength = sizeof mctpg_interface_desc,
 	.bDescriptorType = USB_DT_INTERFACE,
 	.bAlternateSetting = 0,
-	.bNumEndpoints = 3,
+	.bNumEndpoints = 2,
 	.bInterfaceClass = USB_CLASS_MCTP,
 	.bInterfaceSubClass = USB_SUBCLASS_MCTP_MGMT,
 	.bInterfaceProtocol = USB_PROTOCOL_MCTP_1X,
-};
-
-/* Interrupt IN endpoint descriptor */
-static struct usb_endpoint_descriptor hs_notify_desc = {
-	.bLength = USB_DT_ENDPOINT_SIZE,
-	.bDescriptorType = USB_DT_ENDPOINT,
-
-	.bEndpointAddress = USB_DIR_IN | 0x01,
-	.bmAttributes = USB_ENDPOINT_XFER_INT,
-	.wMaxPacketSize = cpu_to_le16(STATUS_BYTECOUNT),
-	.bInterval = 0x04,
 };
 
 /* Bulk IN endpoint descriptor */
@@ -177,7 +146,6 @@ static struct usb_endpoint_descriptor hs_out_ep_desc = {
 /* High-speed descriptor set */
 static struct usb_descriptor_header *mctp_hs_descriptors[] = {
 	(struct usb_descriptor_header *)&mctpg_interface_desc,
-	(struct usb_descriptor_header *)&hs_notify_desc,
 	(struct usb_descriptor_header *)&hs_in_ep_desc,
 	(struct usb_descriptor_header *)&hs_out_ep_desc,
 	NULL,
@@ -414,11 +382,10 @@ static int skb_read(struct f_mctpg *mctpg)
 		return ret;
 	}
 	mctpg->bulk_in_req->length = skb->len;
-	pr_debug("MCTP-USB: skb_read, skb len = %d",
-		 mctpg->bulk_in_req->length);
 
 	mctpg->in_skb = skb;
 
+	pr_debug("MCTP-USB: skb_read, skb len = %d", skb->len);
 	return 0;
 }
 
@@ -440,78 +407,46 @@ static void mctp_bulk_in_complete(struct usb_ep *ep, struct usb_request *req)
 			kfree_skb(mctpg->in_skb);
 			mctpg->in_skb = NULL;
 		}
-		mctpg->bulk_in_req->buf = NULL;
-		mctpg->bulk_in_req->length = 0;
-		usb_ep_queue(mctpg->bulk_in_ep, mctpg->bulk_in_req, GFP_ATOMIC);
-	} else {
-		if (netif_queue_stopped(netdev))
-			netif_wake_queue(netdev);
-		if (!req->actual) {
-			/* Zero-length packet indicates end of transfer */
-			mctpg->bulk_in_req->length = MCTP_USB_XFER_SIZE;
-			mctpg->bulk_in_req->buf = mctpg->bulk_in_buf;
-			spin_lock_irqsave(&mctpg->int_spinlock, flags);
-			memset(mctpg->int_in_req->buf, 0, STATUS_BYTECOUNT);
-			mctpg->tx_pending = false;
-			spin_unlock_irqrestore(&mctpg->int_spinlock, flags);
-			wake_up(&mctpg->tx_wq);
-		} else {
-			stats->tx_packets++;
-			stats->tx_bytes += req->actual;
-			if (mctpg->in_skb) {
-				consume_skb(mctpg->in_skb);
-				mctpg->in_skb = NULL;
-			}
-			/* Prepare next packet */
-			ret = skb_read(mctpg);
-			if (!ret) {
-				/*continue transmission*/
-				usb_ep_queue(mctpg->bulk_in_ep,
-					     mctpg->bulk_in_req, GFP_ATOMIC);
-			} else {
-				/* Handle errors or end of data */
-				if (ret != -ENODATA)
-					stats->tx_dropped++;
-				mctpg->bulk_in_req->buf = NULL;
-				mctpg->bulk_in_req->length = 0;
-				usb_ep_queue(mctpg->bulk_in_ep,
-					     mctpg->bulk_in_req, GFP_ATOMIC);
-			}
-		}
-	}
-}
-
-static void mctp_int_response_complete(struct usb_ep *ep,
-				       struct usb_request *req)
-{
-	struct f_mctpg *mctpg = (struct f_mctpg *)ep->driver_data;
-	struct net_device *netdev = mctpg->netdev;
-	int ret;
-	struct net_device_stats *stats = &netdev->stats;
-	unsigned long flags;
-
-	if (req->status != 0) {
-		ERROR(mctpg->func.config->cdev,
-		      " Int EndPoint Request ERROR: %d\n", req->status);
-		spin_lock_irqsave(&mctpg->int_spinlock, flags);
+		spin_lock_irqsave(&mctpg->in_spinlock, flags);
 		mctpg->tx_pending = false;
-		spin_unlock_irqrestore(&mctpg->int_spinlock, flags);
+		spin_unlock_irqrestore(&mctpg->in_spinlock, flags);
 		wake_up(&mctpg->tx_wq);
 		return;
 	}
 
-	/* Start bulk IN transfer */
+	if (netif_queue_stopped(netdev))
+		netif_wake_queue(netdev);
+
+	if (mctpg->in_skb) {
+		stats->tx_packets++;
+		stats->tx_bytes += req->actual;
+		consume_skb(mctpg->in_skb);
+		mctpg->in_skb = NULL;
+	}
+
 	ret = skb_read(mctpg);
 	if (!ret) {
-		usb_ep_queue(mctpg->bulk_in_ep, mctpg->bulk_in_req, GFP_ATOMIC);
+		ret = usb_ep_queue(mctpg->bulk_in_ep, mctpg->bulk_in_req,
+				   GFP_ATOMIC);
+		if (ret) {
+			ERROR(mctpg->func.config->cdev,
+			      "Chain queue failed in complete: %d\n", ret);
+			kfree_skb(mctpg->in_skb);
+			mctpg->in_skb = NULL;
+
+			spin_lock_irqsave(&mctpg->in_spinlock, flags);
+			mctpg->tx_pending = false;
+			spin_unlock_irqrestore(&mctpg->in_spinlock, flags);
+			wake_up(&mctpg->tx_wq);
+		}
+
 	} else {
-		ERROR(mctpg->func.config->cdev,
-		      "send data to Bulk in req fail!\n");
 		if (ret != -ENODATA)
 			stats->tx_dropped++;
-		spin_lock_irqsave(&mctpg->int_spinlock, flags);
+
+		spin_lock_irqsave(&mctpg->in_spinlock, flags);
 		mctpg->tx_pending = false;
-		spin_unlock_irqrestore(&mctpg->int_spinlock, flags);
+		spin_unlock_irqrestore(&mctpg->in_spinlock, flags);
 		wake_up(&mctpg->tx_wq);
 	}
 }
@@ -526,45 +461,51 @@ static void mctp_int_response_complete(struct usb_ep *ep,
 static int mctpg_poll_thread(void *data)
 {
 	struct f_mctpg *mctpg = data;
-	unsigned long int_flags;
 	unsigned long in_flags;
-	int count;
-	int ret;
+	int ret = 0;
 
 	for (;;) {
 		if (kthread_should_stop())
 			break;
 
-		spin_lock_irqsave(&mctpg->in_spinlock, in_flags);
-		if (!skb_queue_empty(&mctpg->tx_queue) && !mctpg->tx_pending) {
-			count = skb_queue_len(&mctpg->tx_queue);
-			spin_unlock_irqrestore(&mctpg->in_spinlock, in_flags);
-			if (mctpg->int_in_ep) {
-				spin_lock_irqsave(&mctpg->int_spinlock,
-						  int_flags);
-				if (count)
-					put_unaligned_le32(
-						count, mctpg->int_in_req->buf);
-				ret = usb_ep_queue(mctpg->int_in_ep,
-						   mctpg->int_in_req,
-						   GFP_ATOMIC);
-				if (ret)
-					ERROR(mctpg->func.config->cdev,
-					      "usb_ep_queue int fail, ret = %d",
-					      ret);
-				else
-					mctpg->tx_pending = true;
-				spin_unlock_irqrestore(&mctpg->int_spinlock,
-						       int_flags);
-			}
-			/* Wait for more data or stop signal */
-			wait_event(mctpg->tx_wq,
-				   !skb_queue_empty(&mctpg->tx_queue) ||
-					   kthread_should_stop());
+		wait_event_interruptible(mctpg->tx_wq,
+					 (!skb_queue_empty(&mctpg->tx_queue) &&
+					  !mctpg->tx_pending) ||
+						 kthread_should_stop());
 
-		} else {
+		if (kthread_should_stop())
+			break;
+
+		spin_lock_irqsave(&mctpg->in_spinlock, in_flags);
+		if (mctpg->tx_pending || skb_queue_empty(&mctpg->tx_queue)) {
 			spin_unlock_irqrestore(&mctpg->in_spinlock, in_flags);
-			msleep(20);
+			continue;
+		}
+
+		mctpg->tx_pending = true;
+		spin_unlock_irqrestore(&mctpg->in_spinlock, in_flags);
+
+		ret = skb_read(mctpg);
+		if (!ret) {
+			ret = usb_ep_queue(mctpg->bulk_in_ep,
+					   mctpg->bulk_in_req, GFP_KERNEL);
+			if (ret) {
+				ERROR(mctpg->func.config->cdev,
+				      "usb_ep_queue bulk in fail, ret = %d",
+				      ret);
+				kfree_skb(mctpg->in_skb);
+				mctpg->in_skb = NULL;
+
+				spin_lock_irqsave(&mctpg->in_spinlock,
+						  in_flags);
+				mctpg->tx_pending = false;
+				spin_unlock_irqrestore(&mctpg->in_spinlock,
+						       in_flags);
+			}
+		} else {
+			spin_lock_irqsave(&mctpg->in_spinlock, in_flags);
+			mctpg->tx_pending = false;
+			spin_unlock_irqrestore(&mctpg->in_spinlock, in_flags);
 		}
 	}
 	return 0;
@@ -623,7 +564,6 @@ static void mctp_usb_net_setup(struct net_device *dev)
 	dev->hard_header_len = sizeof(struct mctp_usb_hdr);
 	dev->tx_queue_len = DEFAULT_TX_QUEUE_LEN;
 	dev->flags = IFF_NOARP;
-	dev->addr_len = PHYSICAL_ADDR_SIZE;
 	dev->netdev_ops = &mctp_usb_netdev_ops;
 	dev->header_ops = &mctp_usb_headops;
 }
@@ -821,33 +761,8 @@ static int mctpg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	int status;
 	unsigned long flags;
 	struct usb_request *req_in = NULL;
-	struct usb_request *req_int = NULL;
 
 	DBG(cdev, "mctpg_set_alt intf:%d alt:%d\n", intf, alt);
-
-	if (mctpg->int_in_ep != NULL) {
-		/* restart endpoint */
-		usb_ep_disable(mctpg->int_in_ep);
-		status = config_ep_by_speed(f->config->cdev->gadget, f,
-					    mctpg->int_in_ep);
-		if (status) {
-			ERROR(cdev, "config_ep_by_speed INT IN FAILED!\n");
-			goto fail;
-		}
-		status = usb_ep_enable(mctpg->int_in_ep);
-		if (status) {
-			ERROR(cdev, "Enable INT IN endpoint FAILED!\n");
-			goto fail;
-		}
-		mctpg->int_in_ep->driver_data = mctpg;
-
-		req_int =
-			mctpg_alloc_ep_req(mctpg->int_in_ep, STATUS_BYTECOUNT);
-		if (!req_int)
-			goto disable_ep_int_in;
-		req_int->context = mctpg;
-		req_int->complete = mctp_int_response_complete;
-	}
 
 	if (mctpg->bulk_in_ep != NULL) {
 		/* restart endpoint */
@@ -855,20 +770,22 @@ static int mctpg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		status = config_ep_by_speed(f->config->cdev->gadget, f,
 					    mctpg->bulk_in_ep);
 		if (status) {
-			ERROR(cdev, "config_ep_by_speed INT IN FAILED!\n");
-			goto free_req_int_in;
+			ERROR(cdev, "config_ep_by_speed BULK IN FAILED!\n");
+			goto fail;
 		}
 		status = usb_ep_enable(mctpg->bulk_in_ep);
 		if (status) {
-			ERROR(cdev, "Enable INT IN endpoint FAILED!\n");
-			goto free_req_int_in;
+			ERROR(cdev, "Enable BULK IN endpoint FAILED!\n");
+			goto fail;
 		}
 		mctpg->bulk_in_ep->driver_data = mctpg;
 
 		req_in = mctpg_alloc_ep_req(mctpg->bulk_in_ep,
 					    MCTP_USB_XFER_SIZE);
-		if (!req_in)
+		if (!req_in) {
+			status = -ENOMEM;
 			goto disable_ep_bulk_in;
+		}
 		req_in->context = mctpg;
 		req_in->complete = mctp_bulk_in_complete;
 	}
@@ -896,12 +813,6 @@ static int mctpg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		}
 	}
 
-	if (mctpg->int_in_ep != NULL) {
-		spin_lock_irqsave(&mctpg->int_spinlock, flags);
-		mctpg->int_in_req = req_int;
-		spin_unlock_irqrestore(&mctpg->int_spinlock, flags);
-	}
-
 	if (mctpg->bulk_in_ep != NULL) {
 		spin_lock_irqsave(&mctpg->in_spinlock, flags);
 		mctpg->bulk_in_req = req_in;
@@ -925,14 +836,6 @@ disable_ep_bulk_in:
 	if (mctpg->bulk_in_ep)
 		usb_ep_disable(mctpg->bulk_in_ep);
 
-free_req_int_in:
-	if (req_int)
-		free_ep_req(mctpg->int_in_ep, req_int);
-
-disable_ep_int_in:
-	if (mctpg->int_in_ep)
-		usb_ep_disable(mctpg->int_in_ep);
-
 fail:
 	return status;
 }
@@ -942,14 +845,6 @@ static void mctpg_disable(struct usb_function *f)
 	struct f_mctpg *mctpg = func_to_mctpg(f);
 	struct f_mctpg_req_list *list, *next;
 	unsigned long flags;
-
-	spin_lock_irqsave(&mctpg->int_spinlock, flags);
-	if (mctpg->int_in_ep && mctpg->int_in_req) {
-		usb_ep_dequeue(mctpg->int_in_ep, mctpg->int_in_req);
-		free_ep_req(mctpg->int_in_ep, mctpg->int_in_req);
-		mctpg->int_in_req = NULL;
-	}
-	spin_unlock_irqrestore(&mctpg->int_spinlock, flags);
 
 	spin_lock_irqsave(&mctpg->in_spinlock, flags);
 	if (mctpg->bulk_in_ep && mctpg->bulk_in_req) {
@@ -976,8 +871,6 @@ static void mctpg_disable(struct usb_function *f)
 	}
 	spin_unlock_irqrestore(&mctpg->out_spinlock, flags);
 
-	if (mctpg->int_in_ep)
-		usb_ep_disable(mctpg->int_in_ep);
 	if (mctpg->bulk_in_ep)
 		usb_ep_disable(mctpg->bulk_in_ep);
 	if (mctpg->bulk_out_ep)
@@ -1029,14 +922,6 @@ static int mctpg_bind(struct usb_configuration *c, struct usb_function *f)
 	hs_out_ep_desc.wMaxPacketSize = cpu_to_le16(MCTP_USB_XFER_SIZE);
 	mctpg->bulk_out_ep = ep;
 
-	/*int in ep*/
-	ep = usb_ep_autoconfig(c->cdev->gadget, &hs_notify_desc);
-	if (!ep) {
-		ERROR(f->config->cdev, "int in ep autoconfig error\n");
-		goto fail;
-	}
-	mctpg->int_in_ep = ep;
-
 	status = usb_assign_descriptors(f, NULL, mctp_hs_descriptors, NULL,
 					NULL);
 	if (status) {
@@ -1048,19 +933,17 @@ static int mctpg_bind(struct usb_configuration *c, struct usb_function *f)
 
 	spin_lock_init(&mctpg->out_spinlock);
 	spin_lock_init(&mctpg->in_spinlock);
-	spin_lock_init(&mctpg->int_spinlock);
 	INIT_LIST_HEAD(&mctpg->completed_out_req);
 	INIT_WORK(&mctpg->rx_work, mctp_usb_dev_rx_work);
 	mctpg->poll_thread =
 		kthread_run(mctpg_poll_thread, mctpg, "mctpg_poll");
 	netif_wake_queue(ndev);
 
-	printk("MCTP-USB: %s speed IN/%s OUT/%s NOTIFY/%s\n",
+	printk("MCTP-USB: %s speed IN/%s OUT/%s\n",
 	       gadget_is_superspeed(c->cdev->gadget) ? "super" :
 	       gadget_is_dualspeed(c->cdev->gadget)  ? "dual" :
 						       "full",
-	       mctpg->bulk_in_ep->name, mctpg->bulk_out_ep->name,
-	       mctpg->int_in_ep->name);
+	       mctpg->bulk_in_ep->name, mctpg->bulk_out_ep->name);
 
 	return 0;
 
@@ -1091,7 +974,6 @@ static void mctpg_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	usb_free_all_descriptors(f);
 
-	mctpg->int_in_ep = NULL;
 	mctpg->bulk_in_ep = NULL;
 	mctpg->bulk_out_ep = NULL;
 }
@@ -1187,7 +1069,8 @@ static struct usb_function *mctp_alloc(struct usb_function_instance *fi)
 		if (status) {
 			ERROR(mctpg->func.config->cdev,
 			      "mctp_register_netdev FAILED\n");
-			return status;
+			free_netdev(ndev);
+			return ERR_PTR(status);
 		}
 		mctpg->bound = true;
 	}
@@ -1197,4 +1080,4 @@ static struct usb_function *mctp_alloc(struct usb_function_instance *fi)
 
 DECLARE_USB_FUNCTION_INIT(mctp, mctp_alloc_inst, mctp_alloc);
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Mia Lu");
+MODULE_DESCRIPTION("MCTP USB Composite Function");
