@@ -56,6 +56,10 @@ static const struct mfd_cell rts591x_mfd_cells[] = {
 		.name = "rts591x-i2c4",
 		.of_compatible = "realtek,rts591x-i2c",
 	},
+	{
+		.name = "rts591x-adc",
+		.of_compatible = "realtek,rts591x-adc",
+	},
 };
 
 static const struct regmap_config rts591x_regmap_config = {

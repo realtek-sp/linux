@@ -1448,4 +1448,11 @@ config XILINX_AMS
 	  The driver can also be built as a module. If so, the module will be called
 	  xilinx-ams.
 
+config ADC_IOMATRIX
+	tristate "IOMATRIX ADC support"
+	depends on MFD_RTS591X_I2C
+	help
+	  This enables support for IOMATRIX ADC. Say Y here to use IOMATRIX ADC driver to
+	  configure IOMATRIX ADC device.
+
 endmenu
