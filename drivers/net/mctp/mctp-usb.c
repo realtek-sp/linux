@@ -39,6 +39,7 @@ static void mctp_usb_out_complete(struct urb *urb)
 {
 	struct sk_buff *skb = urb->context;
 	struct net_device *netdev = skb->dev;
+	struct net_device_stats *stats = &netdev->stats;
 	int status;
 
 	status = urb->status;
@@ -48,16 +49,20 @@ static void mctp_usb_out_complete(struct urb *urb)
 	case -ECONNRESET:
 	case -ESHUTDOWN:
 	case -EPROTO:
-		dev_dstats_tx_dropped(netdev);
+		// dev_dstats_tx_dropped(netdev);
+		stats->rx_dropped++;
 		break;
 	case 0:
-		dev_dstats_tx_add(netdev, skb->len);
+		// dev_dstats_tx_add(netdev, skb->len);
+		stats->rx_packets++;
+		stats->rx_bytes += skb->len;
 		netif_wake_queue(netdev);
 		consume_skb(skb);
 		return;
 	default:
 		netdev_dbg(netdev, "unexpected tx urb status: %d\n", status);
-		dev_dstats_tx_dropped(netdev);
+		// dev_dstats_tx_dropped(netdev);
+		stats->rx_dropped++;
 	}
 
 	kfree_skb(skb);
@@ -67,6 +72,8 @@ static netdev_tx_t mctp_usb_start_xmit(struct sk_buff *skb,
 				       struct net_device *dev)
 {
 	struct mctp_usb *mctp_usb = netdev_priv(dev);
+	struct net_device *netdev = skb->dev;
+	struct net_device_stats *stats = &netdev->stats;
 	struct mctp_usb_hdr *hdr;
 	unsigned int plen;
 	struct urb *urb;
@@ -106,7 +113,8 @@ static netdev_tx_t mctp_usb_start_xmit(struct sk_buff *skb,
 	return NETDEV_TX_OK;
 
 err_drop:
-	dev_dstats_tx_dropped(dev);
+	// dev_dstats_tx_dropped(dev);
+	stats->rx_dropped++;
 	kfree_skb(skb);
 	return NETDEV_TX_OK;
 }
@@ -154,6 +162,7 @@ static void mctp_usb_in_complete(struct urb *urb)
 {
 	struct sk_buff *skb = urb->context;
 	struct net_device *netdev = skb->dev;
+	struct net_device_stats *stats = &netdev->stats;
 	struct mctp_usb *mctp_usb = netdev_priv(netdev);
 	struct mctp_skb_cb *cb;
 	unsigned int len;
@@ -225,7 +234,9 @@ static void mctp_usb_in_complete(struct urb *urb)
 			skb_trim(skb, pkt_len);
 		}
 
-		dev_dstats_rx_add(netdev, skb->len);
+		// dev_dstats_rx_add(netdev, skb->len);
+		stats->rx_packets++;
+		stats->rx_bytes += skb->len;
 
 		skb->protocol = htons(ETH_P_MCTP);
 		skb_reset_network_header(skb);
@@ -291,7 +302,7 @@ static void mctp_usb_netdev_setup(struct net_device *dev)
 {
 	dev->type = ARPHRD_MCTP;
 
-	dev->mtu = MCTP_USB_MTU_MIN;
+	dev->mtu = MCTP_USB_MTU_MIN * 3;
 	dev->min_mtu = MCTP_USB_MTU_MIN;
 	dev->max_mtu = MCTP_USB_MTU_MAX;
 
@@ -344,7 +355,7 @@ static int mctp_usb_probe(struct usb_interface *intf,
 
 	INIT_DELAYED_WORK(&dev->rx_retry_work, mctp_usb_rx_retry_work);
 
-	rc = mctp_register_netdev(netdev, NULL, MCTP_PHYS_BINDING_USB);
+	rc = mctp_register_netdev(netdev, NULL);
 	if (rc)
 		goto err_free_urbs;
 
