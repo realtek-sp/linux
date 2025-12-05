@@ -73,9 +73,17 @@
 		compatible = "realtek,rts591x-mfd-i2c";
 		reg = <0x30>;
 
+		mfd-gpios = <&pinctrl 37 GPIO_ACTIVE_LOW>;
+
 		peci {
 			compatible = "realtek,rts591x-peci";
 			reg = <0x400a0000>;
+			status = "okay";
+		};
+
+		gpio {
+			compatible = "realtek,rts591x-gpio";
+			reg = <0x40090000>;
 			status = "okay";
 		};
 	};

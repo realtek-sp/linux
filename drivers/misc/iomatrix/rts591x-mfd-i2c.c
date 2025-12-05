@@ -36,6 +36,10 @@ static const struct mfd_cell rts591x_mfd_cells[] = {
 		.name = "rts591x-peci",
 		.of_compatible = "realtek,rts591x-peci",
 	},
+	{
+		.name = "rts591x-gpio",
+		.of_compatible = "realtek,rts591x-gpio",
+	},
 };
 
 static const struct regmap_config rts591x_regmap_config = {

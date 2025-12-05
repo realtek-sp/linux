@@ -129,8 +129,8 @@ static const char *rts591x_gpio_names[] = {
 	"EC_GPIO130", "EC_GPIO131"
 };
 
-static const unsigned int gpio_pins[] = { 30,  31,  87,	 88,  89,  94,
-					  102, 105, 112, 117, 123, 127 };
+static const unsigned int gpio_pins[] = { 13,  16,  40,	 87,  88, 89,
+					  102, 104, 105, 112, 117 };
 
 static int rts591x_gpio_init_valid_mask(struct gpio_chip *gc,
 					unsigned long *valid_mask,

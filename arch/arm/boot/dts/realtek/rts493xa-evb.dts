@@ -80,6 +80,12 @@
 			reg = <0x400a0000>;
 			status = "okay";
 		};
+
+		gpio {
+			compatible = "realtek,rts591x-gpio";
+			reg = <0x40090000>;
+			status = "okay";
+		};
 	};
 
 	rts490xa-hub@70 {
