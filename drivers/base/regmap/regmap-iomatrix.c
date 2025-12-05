@@ -79,7 +79,7 @@ static int iomatrix_bus_xfer(u8 cmd, void *context, u32 reg, u32 w_val,
 	}
 
 	/* waiting for the data to be ready */
-	msleep(50);
+	udelay(50);
 
 	/* get response header */
 	i2c_msg_len = ARRAY_SIZE(rsp_head);

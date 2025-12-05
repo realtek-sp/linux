@@ -304,6 +304,9 @@ struct dw_i2c_dev {
 	unsigned short		i2c_addr_bk; /* chip address - NOTE: 7bit */
 	struct gpio_desc	*alert_gpiod;
 #endif
+#if IS_ENABLED(CONFIG_I2C_IOMATRIX)
+	u32 base_addr;
+#endif
 };
 
 #define ACCESS_INTR_MASK			BIT(0)
@@ -317,6 +320,7 @@ struct dw_i2c_dev {
 #define MODEL_MASK				GENMASK(11, 8)
 
 #define IC_EMPTYFIFO_HOLD_MASTER_EN		BIT(16)
+#define MODEL_RTS591X				BIT(17)
 
 /*
  * Enable UCSI interrupt by writing 0xd at register

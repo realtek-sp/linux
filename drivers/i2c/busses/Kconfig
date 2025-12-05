@@ -622,6 +622,14 @@ config I2C_RTS493XA
 	  If you say yes to this option, support will be included for mixing
 	  Synopsys DesignWare I2C slave adapter and master adapter.
 
+config I2C_IOMATRIX
+	tristate "RTS591X I2C"
+	select I2C_DESIGNWARE_CORE
+	depends on MFD_RTS591X_I2C
+	help
+	  If you say yes to this option, support will be included for the
+	  Synopsys DesignWare I2C adapter for RTS591X.
+
 config I2C_DIGICOLOR
 	tristate "Conexant Digicolor I2C driver"
 	depends on ARCH_DIGICOLOR || COMPILE_TEST

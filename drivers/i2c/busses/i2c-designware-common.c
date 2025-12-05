@@ -500,6 +500,9 @@ void __i2c_dw_disable(struct dw_i2c_dev *dev)
 
 u32 i2c_dw_clk_rate(struct dw_i2c_dev *dev)
 {
+	if (dev->flags & MODEL_RTS591X)
+		return 50000; //khz
+
 	/*
 	 * Clock is not necessary if we got LCNT/HCNT values directly from
 	 * the platform code.

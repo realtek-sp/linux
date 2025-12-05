@@ -347,8 +347,14 @@ int i2c_dw_probe_slave(struct dw_i2c_dev *dev)
 	adap->dev.parent = dev->dev;
 	i2c_set_adapdata(adap, dev);
 
-	ret = devm_request_irq(dev->dev, dev->irq, i2c_dw_isr_slave,
-			       IRQF_SHARED, dev_name(dev->dev), dev);
+	if (dev->flags & MODEL_RTS591X) {
+		ret = devm_request_threaded_irq(dev->dev, dev->irq, NULL,
+						i2c_dw_isr_slave, IRQF_SHARED,
+						dev_name(dev->dev), dev);
+	} else {
+		ret = devm_request_irq(dev->dev, dev->irq, i2c_dw_isr_slave,
+				       IRQF_SHARED, dev_name(dev->dev), dev);
+	}
 	if (ret) {
 		dev_err(dev->dev, "failure requesting irq %i: %d\n",
 			dev->irq, ret);

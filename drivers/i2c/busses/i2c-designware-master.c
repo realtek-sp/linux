@@ -1122,8 +1122,14 @@ int i2c_dw_probe_master(struct dw_i2c_dev *dev)
 	regmap_write(dev->map, DW_IC_INTR_MASK, 0);
 	i2c_dw_release_lock(dev);
 
-	ret = devm_request_irq(dev->dev, dev->irq, i2c_dw_isr, irq_flags,
-			       dev_name(dev->dev), dev);
+	if (dev->flags & MODEL_RTS591X) {
+		ret = devm_request_threaded_irq(dev->dev, dev->irq, NULL,
+						i2c_dw_isr, irq_flags,
+						dev_name(dev->dev), dev);
+	} else {
+		ret = devm_request_irq(dev->dev, dev->irq, i2c_dw_isr,
+				       irq_flags, dev_name(dev->dev), dev);
+	}
 	if (ret) {
 		dev_err(dev->dev, "failure requesting irq %i: %d\n",
 			dev->irq, ret);
