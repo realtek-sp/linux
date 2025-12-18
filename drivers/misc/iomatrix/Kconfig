@@ -20,4 +20,10 @@ config MFD_RTS591X_I2C
 	  This driver include only the core APIs. You have to select individual
 	  components like PWM or GPIO under the corresponding menus.
 
+config UAPI_IOMATRIX
+	tristate "UAPI for IOMatrix"
+	depends on MFD_RTS591X_I2C
+	help
+	  If you say Y here you get support for IOMatrix UAPI.
+
 endmenu

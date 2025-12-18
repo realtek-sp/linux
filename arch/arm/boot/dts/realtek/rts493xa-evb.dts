@@ -90,6 +90,10 @@
 
 		mfd-gpios = <&pinctrl 60 GPIO_ACTIVE_LOW>;
 
+		iomatrix-uapi {
+			compatible = "realtek,iomatrix-uapi";
+		};
+
 		peci {
 			compatible = "realtek,rts591x-peci";
 			reg = <0x400a0000>;

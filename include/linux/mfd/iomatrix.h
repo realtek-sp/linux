@@ -72,4 +72,11 @@ struct rts591x_mfd_dev {
 	struct regmap_irq_chip_data *irq_data;
 };
 
+int iomatrix_regmap_block_write_protected(struct regmap *map,
+					  unsigned int base_reg,
+					  const void *buf, size_t len);
+
+int iomatrix_regmap_fspi_erase_protected(struct regmap *map, u32 erase_addr,
+					 u8 erase_type);
+
 #endif /* __IOMATRIX_H */

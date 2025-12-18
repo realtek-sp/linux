@@ -33,6 +33,10 @@
 
 static const struct mfd_cell rts591x_mfd_cells[] = {
 	{
+		.name = "iomatrix-uapi",
+		.of_compatible = "realtek,iomatrix-uapi",
+	},
+	{
 		.name = "rts591x-peci",
 		.of_compatible = "realtek,rts591x-peci",
 	},
