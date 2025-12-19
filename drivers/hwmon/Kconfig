@@ -2381,6 +2381,13 @@ config SENSORS_INTEL_M10_BMC_HWMON
 	  sensors monitor various telemetry data of different components on the
 	  card, e.g. board temperature, FPGA core temperature/voltage/current.
 
+config SENSORS_PWM_FAN_IOMATRIX
+	tristate "IOMATRIX PWM_FAN support"
+		depends on MFD_RTS591X_I2C
+		help
+		This enables support for IOMATRIX pwm and fantacho, Say Y here to use IOMATRIX pwm-fan driver to
+		configure IOMATRIX pwm and fantacho device.
+
 if ACPI
 
 comment "ACPI drivers"

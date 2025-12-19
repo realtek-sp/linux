@@ -64,6 +64,10 @@ static const struct mfd_cell rts591x_mfd_cells[] = {
 		.name = "rts591x-adc",
 		.of_compatible = "realtek,rts591x-adc",
 	},
+	{
+		.name = "rts591x-pwm-fan",
+		.of_compatible = "realtek,rts591x-pwm-fan",
+	},
 };
 
 static const struct regmap_config rts591x_regmap_config = {
