@@ -1451,6 +1451,7 @@ config XILINX_AMS
 config ADC_IOMATRIX
 	tristate "IOMATRIX ADC support"
 	depends on MFD_RTS591X_I2C
+	select SENSORS_IIO_HWMON
 	help
 	  This enables support for IOMATRIX ADC. Say Y here to use IOMATRIX ADC driver to
 	  configure IOMATRIX ADC device.

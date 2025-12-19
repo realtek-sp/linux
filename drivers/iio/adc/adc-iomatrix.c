@@ -334,8 +334,11 @@ static int rts591x_adc_probe(struct platform_device *pdev)
 		return ret;
 	}
 	/*Init ADC*/
-	rts591x_adc_enable(priv);
-
+	ret = rts591x_adc_enable(priv);
+	if (ret) {
+		dev_err(priv->dev, "Enable ADC Failed\n");
+		return ret;
+	}
 	/*Register Device*/
 	indio_dev->name = "rts591x_adc";
 	indio_dev->modes = INDIO_DIRECT_MODE;
