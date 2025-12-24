@@ -35,14 +35,16 @@
 #include <linux/mfd/iomatrix.h>
 
 #define IOMATRIX_WRITE_MAX_CHUNK_B (4U * 1024U) //4k
+/* 32-bit register access requires 4-byte alignment */
+#define IOMATRIX_REG_ALIGN_BYTES   (4)
 
 struct iomatrix_uapi_priv {
 	struct regmap *map;
 	struct miscdevice miscdev;
 };
 
-static int iomatrix_do_write(struct iomatrix_uapi_priv *priv,
-			     const struct iomatrix_uapi_write_req *wreq)
+static int iomatrix_do_write_mems(struct iomatrix_uapi_priv *priv,
+				  const struct iomatrix_uapi_write_req *wreq)
 {
 	int ret;
 	void __user *uptr;
@@ -72,8 +74,49 @@ out:
 	return ret;
 }
 
-static int iomatrix_do_erase(struct iomatrix_uapi_priv *priv,
-			     const struct iomatrix_uapi_erase_req *ereq)
+static inline bool iomatrix_is_aligned_32(u32 addr)
+{
+	return (addr & (IOMATRIX_REG_ALIGN_BYTES - 1)) == 0;
+}
+
+static int iomatrix_do_write_mem(struct iomatrix_uapi_priv *priv,
+				 const struct iomatrix_uapi_rw_req *rwreq)
+{
+	struct device *dev = priv->miscdev.this_device;
+
+	if (!iomatrix_is_aligned_32(rwreq->addr)) {
+		dev_err(dev, "Write addr 0x%08x is not 4-byte aligned\n",
+			rwreq->addr);
+		return -EINVAL;
+	}
+
+	return regmap_write(priv->map, rwreq->addr, rwreq->val);
+}
+
+static int iomatrix_do_read_mem(struct iomatrix_uapi_priv *priv,
+				struct iomatrix_uapi_rw_req *rwreq)
+{
+	struct device *dev = priv->miscdev.this_device;
+	int ret;
+	u32 val = 0;
+
+	if (!iomatrix_is_aligned_32(rwreq->addr)) {
+		dev_err(dev, "Read addr 0x%08x is not 4-byte aligned\n",
+			rwreq->addr);
+		return -EINVAL;
+	}
+
+	ret = regmap_read(priv->map, rwreq->addr, &val);
+	if (ret)
+		return ret;
+
+	rwreq->val = val;
+
+	return 0;
+}
+
+static int iomatrix_do_erase_fspi(struct iomatrix_uapi_priv *priv,
+				  const struct iomatrix_uapi_erase_req *ereq)
 {
 	u32 sz;
 	int ret;
@@ -132,25 +175,47 @@ static long iomatrix_uapi_ioctl(struct file *filp, unsigned int cmd,
 	struct iomatrix_uapi_priv *priv = dev_get_drvdata(cdev);
 	struct iomatrix_uapi_write_req wreq;
 	struct iomatrix_uapi_erase_req ereq;
+	struct iomatrix_uapi_rw_req rwreq;
 	int ret;
 
 	if (!priv || !priv->map)
 		return -ENODEV;
 
 	switch (cmd) {
-	case IOMATRIX_IOC_WRITE:
+	case IOMATRIX_IOC_WRITE_MEMS:
 		if (copy_from_user(&wreq, (void __user *)arg, sizeof(wreq)))
 			return -EFAULT;
 
-		ret = iomatrix_do_write(priv, &wreq);
+		ret = iomatrix_do_write_mems(priv, &wreq);
 		return ret;
 
-	case IOMATRIX_IOC_ERASE:
+	case IOMATRIX_IOC_ERASE_FSPI:
 		if (copy_from_user(&ereq, (void __user *)arg, sizeof(ereq)))
 			return -EFAULT;
 
-		ret = iomatrix_do_erase(priv, &ereq);
+		ret = iomatrix_do_erase_fspi(priv, &ereq);
 		return ret;
+
+	case IOMATRIX_IOC_WRITE_MEM:
+		if (copy_from_user(&rwreq, (void __user *)arg, sizeof(rwreq)))
+			return -EFAULT;
+
+		ret = iomatrix_do_write_mem(priv, &rwreq);
+		return ret;
+
+	case IOMATRIX_IOC_READ_MEM: {
+		if (copy_from_user(&rwreq, (void __user *)arg, sizeof(rwreq)))
+			return -EFAULT;
+
+		ret = iomatrix_do_read_mem(priv, &rwreq);
+		if (ret)
+			return ret;
+
+		if (copy_to_user((void __user *)arg, &rwreq, sizeof(rwreq)))
+			return -EFAULT;
+
+		return 0;
+	}
 
 	default:
 		return -ENOIOCTLCMD;

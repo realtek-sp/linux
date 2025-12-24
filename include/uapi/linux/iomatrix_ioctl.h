@@ -48,12 +48,25 @@ struct iomatrix_uapi_erase_req {
 	__u32 type; /* erase block type: 4K/32K/64K */
 };
 
+struct iomatrix_uapi_rw_req {
+	__u32 addr; /* register/memory address to write or read */
+	__u32 val; /* value to write; for read, val will be filled by kernel */
+};
+
 /* Write firmware image: arg points to struct iomatrix_uapi_write_req */
-#define IOMATRIX_IOC_WRITE \
+#define IOMATRIX_IOC_WRITE_MEMS \
 	_IOW(IOMATRIX_IOC_MAGIC, 0x01, struct iomatrix_uapi_write_req)
 
 /* FSPI block erase: arg points to struct iomatrix_uapi_erase_req */
-#define IOMATRIX_IOC_ERASE \
+#define IOMATRIX_IOC_ERASE_FSPI \
 	_IOW(IOMATRIX_IOC_MAGIC, 0x02, struct iomatrix_uapi_erase_req)
+
+/* Read a value: arg points to struct iomatrix_uapi_rw_req (addr in, val out) */
+#define IOMATRIX_IOC_READ_MEM \
+	_IOWR(IOMATRIX_IOC_MAGIC, 0x03, struct iomatrix_uapi_rw_req)
+
+/* Write a value: arg points to struct iomatrix_uapi_rw_req (addr/val in) */
+#define IOMATRIX_IOC_WRITE_MEM \
+	_IOW(IOMATRIX_IOC_MAGIC, 0x04, struct iomatrix_uapi_rw_req)
 
 #endif /* _UAPI_IOMATRIX_IOCTL_H_ */
