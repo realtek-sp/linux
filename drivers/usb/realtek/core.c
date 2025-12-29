@@ -644,7 +644,8 @@ static int rts_ep_enable(struct usb_ep *ep,
 }
 
 static void rts_done_wq(struct rts_endpoint *priv_ep,
-			struct rts_request *priv_req, int status)
+			struct rts_request *priv_req, int status,
+			unsigned long *flags)
 {
 	bool stopped = priv_ep->stopped;
 
@@ -665,10 +666,14 @@ static void rts_done_wq(struct rts_endpoint *priv_ep,
 		rts_set_ep_irq_disable(priv_ep);
 	}
 
+	spin_unlock_irqrestore(&priv_ep->rts_dev->lock, *flags);
+
 	usb_gadget_unmap_request(&priv_ep->rts_dev->gadget, &priv_req->request,
 				 priv_ep->dir_in);
 
 	usb_gadget_giveback_request(&priv_ep->endpoint, &priv_req->request);
+
+	spin_lock_irqsave(&priv_ep->rts_dev->lock, *flags);
 
 	if (priv_ep->rts_dev->request_pending > 0)
 		--priv_ep->rts_dev->request_pending;
@@ -733,9 +738,8 @@ static void rts_done_uvc_in_disable(struct rts_endpoint *priv_ep)
 	while (!list_empty(&priv_ep->queue)) {
 		priv_req = list_entry(priv_ep->queue.next, struct rts_request,
 				      queue);
-		rts_done_wq(priv_ep, priv_req, -ECONNRESET);
+		rts_done_wq(priv_ep, priv_req, -ECONNRESET, &flags);
 	}
-	spin_unlock_irqrestore(&priv_ep->rts_dev->lock, flags);
 
 	priv_ep->epnum = 0;
 	priv_ep->mcnum = 0;
@@ -745,6 +749,7 @@ static void rts_done_uvc_in_disable(struct rts_endpoint *priv_ep)
 	priv_ep->ep_enable = 0;
 	priv_ep->uac_cnt = 0;
 	priv_ep->is_uac_in = 0;
+	spin_unlock_irqrestore(&priv_ep->rts_dev->lock, flags);
 }
 
 static void rts_done_uvc_in_disable_ep5(struct work_struct *work)
@@ -1714,23 +1719,30 @@ static int rts_usb_intrep_irq(struct rts_udc *rtsusb)
 static void rts_usb_bulk_in_process(struct rts_endpoint *priv_ep)
 {
 	struct rts_request *priv_req = NULL;
+	unsigned long flags;
 	int cnt;
 
 	RTS_DEBUG("%s() -> ep%d\n", __func__, priv_ep->epnum);
 
-	if (!priv_ep || list_empty(&priv_ep->queue))
+	if (!priv_ep)
 		return;
+	spin_lock_irqsave(&priv_ep->rts_dev->lock, flags);
+	if (list_empty(&priv_ep->queue)) {
+		spin_unlock_irqrestore(&priv_ep->rts_dev->lock, flags);
+		return;
+	}
 
 	priv_req = list_entry(priv_ep->queue.next, struct rts_request, queue);
 	if (priv_req->request.length)
 		rts_transfer_complete(priv_ep, priv_req);
-	rts_done_wq(priv_ep, priv_req, 0);
+	rts_done_wq(priv_ep, priv_req, 0, &flags);
 	cnt = 10000;
 	while (cnt--) {
 		if (mc_read_reg(MC_FIFO0_BC + 0x100 * priv_ep->mcnum) == 0)
 			break;
 	}
 	rts_start_next_request(priv_ep);
+	spin_unlock_irqrestore(&priv_ep->rts_dev->lock, flags);
 }
 
 static void rts_usb_bulk_in_process_ep1(struct work_struct *work)
@@ -1910,17 +1922,20 @@ static int rts_usb_uacoutep_irq(struct rts_udc *rtsusb)
 static void rts_usb_uvc_in_process(struct rts_endpoint *priv_ep)
 {
 	struct rts_request *priv_req = NULL;
+	unsigned long flags;
 
 	RTS_DEBUG("%s()\n", __func__);
 
+	spin_lock_irqsave(&priv_ep->rts_dev->lock, flags);
 	if (!priv_ep || list_empty(&priv_ep->queue))
 		return;
 
 	priv_req = list_entry(priv_ep->queue.next, struct rts_request, queue);
 	if (priv_req->request.length)
 		rts_transfer_complete(priv_ep, priv_req);
-	rts_done_wq(priv_ep, priv_req, 0);
+	rts_done_wq(priv_ep, priv_req, 0, &flags);
 	rts_start_next_request(priv_ep);
+	spin_unlock_irqrestore(&priv_ep->rts_dev->lock, flags);
 }
 
 static void rts_usb_uvc_in_process_ep5(struct work_struct *work)
