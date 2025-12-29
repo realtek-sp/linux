@@ -2041,12 +2041,12 @@ static int rts_usb_ep_irq(void *dev)
 static irqreturn_t rts_usb_common_irq(int irq, void *dev)
 {
 	int ret = IRQ_NONE;
-#ifdef CONFIG_RTS3917_SUSPEND_TO_RAM
+#ifdef CONFIG_RTS493x_SUSPEND_TO_RAM
 	struct rts_udc *rtsusb = (struct rts_udc *)dev;
 #endif
 
 	RTS_DEBUG("%s() ~~start~~\n", __func__);
-#ifdef CONFIG_RTS3917_SUSPEND_TO_RAM
+#ifdef CONFIG_RTS493x_SUSPEND_TO_RAM
 	if (rtsusb->suspend_work.work.func) {
 		cancel_delayed_work(&rtsusb->suspend_work);
 		schedule_delayed_work(&rtsusb->suspend_work,

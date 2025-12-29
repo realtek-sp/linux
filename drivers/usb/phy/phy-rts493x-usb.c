@@ -636,7 +636,7 @@ static int rts_usb_phy_probe(struct platform_device *pdev)
 	}
 #endif
 
-	dev_info(&pdev->dev, "Initialized Realtek IPCam USB Phy module\n");
+	dev_info(&pdev->dev, "Initialized Realtek RTS493x USB Phy module\n");
 	return 0;
 }
 
