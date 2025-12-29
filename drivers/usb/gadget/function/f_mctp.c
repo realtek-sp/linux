@@ -325,21 +325,18 @@ static int mctp_usb_header_create(struct sk_buff *skb, struct net_device *dev,
 				  const void *saddr, unsigned int len)
 {
 	struct mctp_usb_hdr *hdr = NULL;
-	unsigned int plen;
 	int rc;
-
-	plen = skb->len;
 
 	hdr = skb_push(skb, sizeof(*hdr));
 	if (!hdr) {
 		pr_err("MCTP-USB: Failed to allocate hdr (size=%zu), skb len=%u\n",
-		       sizeof(*hdr), plen);
+		       sizeof(*hdr), len);
 		rc = -ENOMEM;
 		goto err_out;
 	}
 	hdr->id = cpu_to_be16(MCTP_USB_DMTF_ID);
 	hdr->rsvd = 0;
-	hdr->len = plen + sizeof(*hdr);
+	hdr->len = len + sizeof(*hdr);
 
 	return 0;
 
@@ -360,9 +357,7 @@ static int skb_read(struct f_mctpg *mctpg)
 	struct sk_buff *skb;
 	int ret;
 
-	spin_lock_irqsave(&mctpg->in_spinlock, flags);
-	skb = __skb_dequeue(&mctpg->tx_queue);
-	spin_unlock_irqrestore(&mctpg->in_spinlock, flags);
+	skb = skb_dequeue(&mctpg->tx_queue);
 	if (!skb)
 		return -ENODATA;
 
@@ -400,7 +395,7 @@ static void mctp_bulk_in_complete(struct usb_ep *ep, struct usb_request *req)
 
 	if (req->status != 0) {
 		ERROR(mctpg->func.config->cdev,
-		      " Bulk In EndPoint Request ERROR: %d\n", req->status);
+		      "Bulk In EP Request ERROR: %d\n", req->status);
 		if (req->actual)
 			stats->tx_dropped++;
 		if (mctpg->in_skb) {
@@ -439,7 +434,6 @@ static void mctp_bulk_in_complete(struct usb_ep *ep, struct usb_request *req)
 			spin_unlock_irqrestore(&mctpg->in_spinlock, flags);
 			wake_up(&mctpg->tx_wq);
 		}
-
 	} else {
 		if (ret != -ENODATA)
 			stats->tx_dropped++;
@@ -491,7 +485,7 @@ static int mctpg_poll_thread(void *data)
 					   mctpg->bulk_in_req, GFP_KERNEL);
 			if (ret) {
 				ERROR(mctpg->func.config->cdev,
-				      "usb_ep_queue bulk in fail, ret = %d",
+				      "usb_ep_queue bulk in fail, ret = %d\n",
 				      ret);
 				kfree_skb(mctpg->in_skb);
 				mctpg->in_skb = NULL;
@@ -524,19 +518,17 @@ static netdev_tx_t mctp_usb_start_xmit(struct sk_buff *skb,
 	struct f_mctpg *mctpg = netdev_priv(dev);
 	unsigned long flags;
 
-	spin_lock_irqsave(&mctpg->in_spinlock, flags);
-
+	spin_lock_irqsave(&mctpg->tx_queue.lock, flags);
 	if (skb_queue_len(&mctpg->tx_queue) >= MCTP_USB_TX_WORK_LEN) {
 		netif_stop_queue(dev);
-		spin_unlock_irqrestore(&mctpg->in_spinlock, flags);
+		spin_unlock_irqrestore(&mctpg->tx_queue.lock, flags);
 		netdev_err(dev, "BUG! Tx Ring full when queue awake!\n");
 		return NETDEV_TX_BUSY;
 	}
-
 	__skb_queue_tail(&mctpg->tx_queue, skb);
 	if (skb_queue_len(&mctpg->tx_queue) == MCTP_USB_TX_WORK_LEN)
 		netif_stop_queue(dev);
-	spin_unlock_irqrestore(&mctpg->in_spinlock, flags);
+	spin_unlock_irqrestore(&mctpg->tx_queue.lock, flags);
 
 	/* Wake up polling thread */
 	wake_up(&mctpg->tx_wq);
