@@ -72,6 +72,12 @@ struct rts591x_mfd_dev {
 	struct regmap_irq_chip_data *irq_data;
 };
 
+enum rts591x_model { MODEL_ESCM = 0, MODEL_HPM };
+
+struct rts591x_model_pdata {
+	enum rts591x_model model;
+};
+
 int iomatrix_regmap_block_write_protected(struct regmap *map,
 					  unsigned int base_reg,
 					  const void *buf, size_t len);

@@ -25,6 +25,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/gpio/driver.h>
 #include <linux/i2c.h>
+#include <linux/mfd/iomatrix.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
@@ -96,50 +97,59 @@ struct rts591x_gpio_chip {
 	struct regmap *regmap;
 	phys_addr_t base;
 	struct gpio_chip gc;
-	int irq;
-};
-
-static const char *rts591x_gpio_names[] = {
-	"EC_GPIO000", "EC_GPIO001", "EC_GPIO002", "EC_GPIO003", "EC_GPIO004",
-	"EC_GPIO005", "EC_GPIO006", "EC_GPIO007", "EC_GPIO008", "EC_GPIO009",
-	"EC_GPIO010", "EC_GPIO011", "EC_GPIO012", "EC_GPIO013", "EC_GPIO014",
-	"EC_GPIO015", "EC_GPIO016", "EC_GPIO017", "EC_GPIO018", "EC_GPIO019",
-	"EC_GPIO020", "EC_GPIO021", "EC_GPIO022", "EC_GPIO023", "EC_GPIO024",
-	"EC_GPIO025", "EC_GPIO026", "EC_GPIO027", "EC_GPIO028", "EC_GPIO029",
-	"EC_GPIO030", "EC_GPIO031", "EC_GPIO032", "EC_GPIO033", "EC_GPIO034",
-	"EC_GPIO035", "EC_GPIO036", "EC_GPIO037", "EC_GPIO038", "EC_GPIO039",
-	"EC_GPIO040", "EC_GPIO041", "EC_GPIO042", "EC_GPIO043", "EC_GPIO044",
-	"EC_GPIO045", "EC_GPIO046", "EC_GPIO047", "EC_GPIO048", "EC_GPIO049",
-	"EC_GPIO050", "EC_GPIO051", "EC_GPIO052", "EC_GPIO053", "EC_GPIO054",
-	"EC_GPIO055", "EC_GPIO056", "EC_GPIO057", "EC_GPIO058", "EC_GPIO059",
-	"EC_GPIO060", "EC_GPIO061", "EC_GPIO062", "EC_GPIO063", "EC_GPIO064",
-	"EC_GPIO065", "EC_GPIO066", "EC_GPIO067", "EC_GPIO068", "EC_GPIO069",
-	"EC_GPIO070", "EC_GPIO071", "EC_GPIO072", "EC_GPIO073", "EC_GPIO074",
-	"EC_GPIO075", "EC_GPIO076", "EC_GPIO077", "EC_GPIO078", "EC_GPIO079",
-	"EC_GPIO080", "EC_GPIO081", "EC_GPIO082", "EC_GPIO083", "EC_GPIO084",
-	"EC_GPIO085", "EC_GPIO086", "EC_GPIO087", "EC_GPIO088", "EC_GPIO089",
-	"EC_GPIO090", "EC_GPIO091", "EC_GPIO092", "EC_GPIO093", "EC_GPIO094",
-	"EC_GPIO095", "EC_GPIO096", "EC_GPIO097", "EC_GPIO098", "EC_GPIO099",
-	"EC_GPIO100", "EC_GPIO101", "EC_GPIO102", "EC_GPIO103", "EC_GPIO104",
-	"EC_GPIO105", "EC_GPIO106", "EC_GPIO107", "EC_GPIO108", "EC_GPIO109",
-	"EC_GPIO110", "EC_GPIO111", "EC_GPIO112", "EC_GPIO113", "EC_GPIO114",
-	"EC_GPIO115", "EC_GPIO116", "EC_GPIO117", "EC_GPIO118", "EC_GPIO119",
-	"EC_GPIO120", "EC_GPIO121", "EC_GPIO122", "EC_GPIO123", "EC_GPIO124",
-	"EC_GPIO125", "EC_GPIO126", "EC_GPIO127", "EC_GPIO128", "EC_GPIO129",
-	"EC_GPIO130", "EC_GPIO131"
+	enum rts591x_model model;
 };
 
 static const unsigned int gpio_pins[] = { 13,  16,  40,	 87,  88, 89,
 					  102, 104, 105, 112, 117 };
 
+static const unsigned int gpio_pins_hpm[] = {
+	0,   1,	  2,   3,   4,	 9,   13,  14,	15,  16,  17,  18,
+	19,  20,  21,  30,  40,	 84,  86,  94,	95,  96,  97,  99,
+	100, 101, 102, 103, 104, 105, 106, 107, 109, 111, 112, 113,
+	114, 115, 117, 118, 119, 122, 123, 124, 125, 126, 127, 131
+};
+
+static int rts591x_gpio_request(struct gpio_chip *gc, unsigned int offset)
+{
+	if (!test_bit(offset, gc->valid_mask)) {
+		dev_err(gc->parent, "GPIO %u is not valid\n", offset);
+		return -EINVAL;
+	}
+
+	dev_dbg(gc->parent, "GPIO %u requested\n", offset);
+
+	return 0;
+}
+
 static int rts591x_gpio_init_valid_mask(struct gpio_chip *gc,
 					unsigned long *valid_mask,
 					unsigned int ngpios)
 {
+	struct rts591x_gpio_chip *chip = gpiochip_get_data(gc);
+	const unsigned int *pins;
+	size_t nr_pins;
+	size_t i;
+
+	if (chip->model == MODEL_ESCM) {
+		pins = gpio_pins;
+		nr_pins = ARRAY_SIZE(gpio_pins);
+	} else if (chip->model == MODEL_HPM) {
+		pins = gpio_pins_hpm;
+		nr_pins = ARRAY_SIZE(gpio_pins_hpm);
+	} else {
+		bitmap_zero(valid_mask, ngpios);
+		return 0;
+	}
+
 	bitmap_zero(valid_mask, ngpios);
 
-	for (size_t i = 0; i < ARRAY_SIZE(gpio_pins); i++)
-		bitmap_set(valid_mask, gpio_pins[i], 1);
+	for (i = 0; i < nr_pins; i++) {
+		unsigned int pin = pins[i];
+
+		if (pin < ngpios)
+			bitmap_set(valid_mask, pin, 1);
+	}
 
 	return 0;
 }
@@ -270,6 +280,7 @@ static int rts591x_gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 static int rts591x_gpio_probe(struct platform_device *pdev)
 {
 	struct rts591x_gpio_chip *chip;
+	struct rts591x_model_pdata *pdata;
 	struct device *dev, *parent;
 	int ret;
 
@@ -279,6 +290,14 @@ static int rts591x_gpio_probe(struct platform_device *pdev)
 	chip = devm_kzalloc(dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)
 		return -ENOMEM;
+
+	pdata = dev_get_platdata(&pdev->dev);
+	if (pdata) {
+		chip->model = pdata->model;
+	} else {
+		dev_warn(&pdev->dev, "No pdata, defaulting to ESCM\n");
+		chip->model = MODEL_ESCM;
+	}
 
 	chip->regmap = dev_get_regmap(parent, NULL);
 	if (!chip->regmap)
@@ -295,8 +314,8 @@ static int rts591x_gpio_probe(struct platform_device *pdev)
 	chip->gc.label = dev_name(dev);
 	chip->gc.parent = dev;
 	chip->gc.owner = THIS_MODULE;
-	chip->gc.names = rts591x_gpio_names;
 
+	chip->gc.request = rts591x_gpio_request;
 	chip->gc.direction_input = rts591x_gpio_direction_input;
 	chip->gc.direction_output = rts591x_gpio_direction_output;
 	chip->gc.set = rts591x_gpio_set_value;

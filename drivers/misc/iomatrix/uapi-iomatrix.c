@@ -279,7 +279,10 @@ static int iomatrix_uapi_probe(struct platform_device *pdev)
 	priv->map = map;
 
 	priv->miscdev.minor = MISC_DYNAMIC_MINOR;
-	priv->miscdev.name = "iomatrix-uapi"; /* /dev/iomatrix-uapi */
+	priv->miscdev.name = devm_kasprintf(&pdev->dev, GFP_KERNEL,
+					    "iomatrix-uapi%d", pdev->id);
+	if (!priv->miscdev.name)
+		return -ENOMEM;
 	priv->miscdev.fops = &iomatrix_uapi_fops;
 	priv->miscdev.parent = &pdev->dev;
 
@@ -308,16 +311,9 @@ static int iomatrix_uapi_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id iomatrix_uapi_of_match[] = {
-	{ .compatible = "realtek,iomatrix-uapi" },
-	{ /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(of, iomatrix_uapi_of_match);
-
 static struct platform_driver iomatrix_uapi_driver = {
 	.driver = {
 		.name           = "iomatrix-uapi",
-		.of_match_table = iomatrix_uapi_of_match,
 	},
 	.probe  = iomatrix_uapi_probe,
 	.remove = iomatrix_uapi_remove,
