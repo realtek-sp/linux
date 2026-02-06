@@ -363,7 +363,7 @@ static int rts591x_adc_probe(struct platform_device *pdev)
 		return ret;
 	}
 	/*Register Device*/
-	indio_dev->name = "rts591x_adc";
+	indio_dev->name = dev->of_node->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->info = &rts591x_adc_iio_info;
 	indio_dev->num_channels = priv->num_channels;

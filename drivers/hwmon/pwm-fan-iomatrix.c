@@ -87,9 +87,8 @@
 #define RTS591X_WAIT_FAN_READY_TIMEOUT_US (100000) /* us */
 #define RTS591X_POLL_SLEEP		  (2000) /* us */
 #define RTS591X_TACH_MODE_HZ		  100000
-#define RTS591X_TACH_CLOCK_PERIOD	  (1 / RTS591X_TACH_MODE_HZ)
 #define RTS591X_POLLING_TIMER_PERIOD	  msecs_to_jiffies(10) /*ms*/
-
+#define RTS591X_PWM_MIN_DIV		  (10)
 enum RTS591X_tacho_edge_sel {
 	HALF_TACH_PERIOD,
 	ONE_TACH_PERIOD,
@@ -126,7 +125,6 @@ struct rts591x_pwm_fan_data {
 	u8 fan_edge_sel;
 	bool fan_cnt_ready_int;
 	struct regmap *regmap;
-	bool pwm_present[RTS591X_PWM_MAX_CAHNNEL];
 	bool fan_present[RTS591X_FAN_TACH_MAX_CAHNNEL];
 	struct rts591x_fan_tacho_dev fan_dev[RTS591X_FAN_TACH_MAX_CAHNNEL];
 	struct rts591x_cooling_device *cdev[RTS591X_PWM_MAX_CAHNNEL];
@@ -244,6 +242,8 @@ static int rts591x_write_pwm(struct device *dev, u32 attr, int channel,
 		if (val < 0 || val > priv->pwm_clock_div) {
 			ret = -EINVAL;
 			goto out;
+		} else if (val < priv->pwm_clock_div / RTS591X_PWM_MIN_DIV) {
+			val = priv->pwm_clock_div / RTS591X_PWM_MIN_DIV;
 		}
 		ret = set_pwm(priv, channel, val);
 		if (ret) {
@@ -373,17 +373,18 @@ static void rts591x_sample_handler(struct work_struct *work)
 				    priv->fan_base + RTS591X_FAN_TACH_CTRL(i),
 				    &counter);
 			counter = FIELD_GET(RTS591X_FAN_TACH_CTRL_CNT, counter);
-			if (counter > priv->fan_dev[i].counter)
-				priv->fan_dev[i].rpm =
+			if (counter >= priv->fan_dev[i].counter) {
+				priv->fan_dev[i].rpm = DIV_ROUND_CLOSEST(
 					(counter - priv->fan_dev[i].counter) *
-					1000 * 60 /
-					(delta * RTS591X_FAN_PULSES_RESOLUTION);
-			else
-				priv->fan_dev[i].rpm =
+						1000 * 60,
+					delta * RTS591X_FAN_PULSES_RESOLUTION);
+			} else {
+				priv->fan_dev[i].rpm = DIV_ROUND_CLOSEST(
 					(0xFFFF - priv->fan_dev[i].counter +
 					 counter) *
-					1000 * 60 /
-					(delta * RTS591X_FAN_PULSES_RESOLUTION);
+						1000 * 60,
+					delta * RTS591X_FAN_PULSES_RESOLUTION);
+			}
 			priv->fan_dev[i].counter = counter;
 		}
 	}
@@ -410,6 +411,8 @@ static irqreturn_t rts591x_fan_isr(int irq, void *dev_id)
 	if (ret) {
 		dev_err(priv->dev,
 			"Timeout waiting for read interrupt for fan counter ready\n");
+		priv->fan_dev[index].rpm = 0;
+		priv->fan_dev[index].counter = 0;
 		goto out;
 	}
 
@@ -430,6 +433,18 @@ out:
 static int rts591x_en_pwm_port(struct rts591x_pwm_fan_data *priv, u32 pwm_port)
 {
 	mutex_lock(&priv->pwm_lock);
+
+	regmap_update_bits(priv->regmap,
+			   priv->pwm_base + RTS591X_PWM_CTRL(pwm_port),
+			   RTS591X_PWM_CTRL_CLKSRC,
+			   priv->pwm_clock_src ? RTS591X_PWM_CTRL_CLKSRC : 0);
+	regmap_update_bits(priv->regmap,
+			   priv->pwm_base + RTS591X_PWM_CTRL(pwm_port),
+			   RTS591X_PWM_CTRL_INVT, 0);
+	regmap_update_bits(priv->regmap,
+			   priv->pwm_base + RTS591X_PWM_DIV(pwm_port),
+			   RTS591X_PWM_DIV_MASK, priv->pwm_clock_div);
+
 	/*Default 50% duty cycle*/
 	regmap_update_bits(priv->regmap,
 			   priv->pwm_base + RTS591X_PWM_DUTY(pwm_port),
@@ -440,7 +455,6 @@ static int rts591x_en_pwm_port(struct rts591x_pwm_fan_data *priv, u32 pwm_port)
 			   RTS591X_PWM_CTRL_EN, RTS591X_PWM_CTRL_EN);
 
 	mutex_unlock(&priv->pwm_lock);
-	priv->pwm_present[pwm_port] = true;
 
 	return 0;
 }
@@ -545,14 +559,6 @@ static int rts591x_enable_tacho(struct rts591x_pwm_fan_data *priv)
 					    RTS591X_FAN_TACH_SELEDGE) |
 						   RTS591X_FAN_TACH_READMODE |
 						   RTS591X_FAN_TACH_FILTEREN);
-
-			regmap_update_bits(
-				priv->regmap,
-				priv->fan_base + RTS591X_FAN_TACH_INTEN(index),
-				RTS591X_FAN_TACH_INTEN_CNTRDY,
-				priv->fan_cnt_ready_int ?
-					RTS591X_FAN_TACH_INTEN_CNTRDY :
-					0);
 		} else {
 			regmap_update_bits(priv->regmap,
 					   priv->fan_base +
@@ -564,6 +570,14 @@ static int rts591x_enable_tacho(struct rts591x_pwm_fan_data *priv)
 					    RTS591X_FAN_TACH_SELEDGE) |
 						   RTS591X_FAN_TACH_FILTEREN);
 		}
+
+		regmap_update_bits(priv->regmap,
+				   priv->fan_base +
+					   RTS591X_FAN_TACH_INTEN(index),
+				   RTS591X_FAN_TACH_INTEN_CNTRDY,
+				   priv->fan_cnt_ready_int ?
+					   RTS591X_FAN_TACH_INTEN_CNTRDY :
+					   0);
 		/*Set the fan tacho limit 0x0000 <= rpm <= 0xFFFF*/
 		regmap_update_bits(
 			priv->regmap,
@@ -645,7 +659,7 @@ static int rts591x_pwm_init(struct rts591x_pwm_fan_data *priv)
 	struct device *dev = priv->dev;
 	struct device_node *pwms_node;
 	u32 clock_config[2];
-	int ret, i;
+	int ret;
 
 	pwms_node = of_get_child_by_name(dev->of_node, "pwms");
 	if (!pwms_node) {
@@ -671,18 +685,6 @@ static int rts591x_pwm_init(struct rts591x_pwm_fan_data *priv)
 		priv->pwm_clock_src = clock_config[1];
 	}
 
-	for (i = 0; i < RTS591X_PWM_MAX_CAHNNEL; i++) {
-		regmap_update_bits(
-			priv->regmap, priv->pwm_base + RTS591X_PWM_CTRL(i),
-			RTS591X_PWM_CTRL_CLKSRC,
-			priv->pwm_clock_src ? RTS591X_PWM_CTRL_CLKSRC : 0);
-		regmap_update_bits(priv->regmap,
-				   priv->pwm_base + RTS591X_PWM_CTRL(i),
-				   RTS591X_PWM_CTRL_INVT, 0);
-		regmap_update_bits(priv->regmap,
-				   priv->pwm_base + RTS591X_PWM_DIV(i),
-				   RTS591X_PWM_DIV_MASK, priv->pwm_clock_div);
-	}
 	of_node_put(pwms_node);
 	return 0;
 };
@@ -737,7 +739,7 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 	struct device *hwmon;
 	struct rts591x_mfd_dev *mfd_dev;
 	struct rts591x_pwm_fan_data *priv;
-	char name[20];
+	const char *irq_name, *name;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -787,10 +789,11 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 				return virq;
 			}
 			priv->fan_dev[index].irq = virq;
-			sprintf(name, "rts591x_fan_%d", index);
+			irq_name = devm_kasprintf(dev, GFP_KERNEL, "%s_%d",
+						  dev->of_node->name, index);
 			ret = devm_request_threaded_irq(dev, virq, NULL,
 							rts591x_fan_isr,
-							IRQF_ONESHOT, name,
+							IRQF_ONESHOT, irq_name,
 							priv);
 			if (ret) {
 				dev_err(dev, "register IRQ fan%d failed\n",
@@ -807,10 +810,10 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 		dev_err(dev, "RTS591X PWM-FAN Driver probe failed");
 		return ret;
 	}
-
-	hwmon = devm_hwmon_device_register_with_info(dev, "rts591x_pwm_fan",
-						     priv, &rts591x_chip_info,
-						     rts591x_costum_groups);
+	name = devm_kasprintf(dev, GFP_KERNEL, "%s", dev->of_node->name);
+	strreplace((char *)name, '-', '_');
+	hwmon = devm_hwmon_device_register_with_info(
+		dev, name, priv, &rts591x_chip_info, rts591x_costum_groups);
 
 	if (IS_ERR(hwmon)) {
 		dev_err(dev,
@@ -823,12 +826,34 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id of_pwm_fan_match_table[] = { {
-	.compatible = "realtek,rts591x-pwm-fan",
-} };
+static void rts591x_pwn_fan_shutdown(struct platform_device *pdev)
+{
+	struct rts591x_pwm_fan_data *priv = platform_get_drvdata(pdev);
+	int index;
+	if (!priv->fan_cnt_ready_int)
+		cancel_delayed_work_sync(&priv->poll_work);
+	else {
+		for (index = 0; index < RTS591X_FAN_TACH_MAX_CAHNNEL; index++) {
+			mutex_lock(&priv->fan_lock[index]);
+			regmap_update_bits(priv->regmap,
+					   priv->fan_base +
+						   RTS591X_FAN_TACH_CTRL(index),
+					   RTS591X_FAN_TACH_EN, 0);
+			mutex_unlock(&priv->fan_lock[index]);
+			disable_irq(priv->fan_dev[index].irq);
+		}
+	}
+}
+
+static const struct of_device_id of_pwm_fan_match_table[] = {
+	{
+		.compatible = "realtek,rts591x-pwm-fan",
+	},
+};
 
 static struct  platform_driver rts591x_pwm_fan_driver = {
     .probe		= rts591x_pwm_fan_probe,
+	.shutdown = rts591x_pwn_fan_shutdown,
 	.driver		= {
 		.name	= "rts591x_pwm_fan",
 		.of_match_table = of_pwm_fan_match_table,

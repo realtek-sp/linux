@@ -20,15 +20,29 @@
 
 	iio-hwmon {
 			compatible = "iio-hwmon";
-			io-channels = <&rts_adc 0>,
-					<&rts_adc 1>,
-					<&rts_adc 2>,
-					<&rts_adc 3>;
+			io-channels = <&rts591x_adc_escm 0>,
+					<&rts591x_adc_escm 1>,
+					<&rts591x_adc_escm 2>,
+					<&rts591x_adc_escm 3>;
 					/* Channels should correspond to the adc enabled channels
-					<&rts_adc 4>,
-					<&rts_adc 5>,
-					<&rts_adc 6>,
-					<&rts_adc 7>;
+					<&rts591x_adc_escm 4>,
+					<&rts591x_adc_escm 5>,
+					<&rts591x_adc_escm 6>,
+					<&rts591x_adc_escm 7>;
+					*/
+	};
+
+	iio-hwmon-hpm {
+			compatible = "iio-hwmon";
+			io-channels = <&rts591x_adc_hpm 0>,
+					<&rts591x_adc_hpm 1>,
+					<&rts591x_adc_hpm 2>,
+					<&rts591x_adc_hpm 3>;
+					/* Channels should correspond to the adc enabled channels
+					<&rts591x_adc_hpm 4>,
+					<&rts591x_adc_hpm 5>,
+					<&rts591x_adc_hpm 6>,
+					<&rts591x_adc_hpm 7>;
 					*/
 	};
 };
@@ -167,7 +181,7 @@
 			status = "okay";
 		};
 
-		rts_adc: adc {
+		rts591x_adc_escm: rts591x-adc-escm {
 			compatible = "realtek,rts591x-adc";
 			reg = <0x4000FE00>;
 			linear-Calibration;
@@ -216,7 +230,7 @@
 			};
 		};
 
-		pwm_fan {
+		rts591x-pwm-fan-escm {
 			compatible = "realtek,rts591x-pwm-fan";
 			status = "okay";
 
@@ -303,6 +317,55 @@
 			"HPM_GPIO120", "HPM_GPIO121", "HPM_GPIO122", "HPM_GPIO123",
 			"HPM_GPIO124", "HPM_GPIO125", "HPM_GPIO126", "HPM_GPIO127",
 			"HPM_GPIO128", "HPM_GPIO129", "HPM_GPIO130", "HPM_GPIO131";
+		};
+
+		rts591x_adc_hpm: adc-hpm {
+			compatible = "realtek,rts591x-adc";
+			reg = <0x4000FE00>;
+			linear-Calibration;
+			mode = "repeat";
+			status = "okay";
+			#io-channel-cells = <1>;
+
+			channel@0{
+				channel-en = "enabled";
+				low-pass-filter;
+			};
+
+			channel@1{
+				channel-en = "enabled";
+				low-pass-filter;
+			};
+
+			channel@2{
+				channel-en = "enabled";
+				low-pass-filter;
+			};
+
+			channel@3{
+				channel-en = "enabled";
+				low-pass-filter;
+			};
+
+			channel@4{
+				channel-en = "disabled";
+				low-pass-filter;
+			};
+
+			channel@5{
+				channel-en = "disabled";
+				low-pass-filter;
+			};
+
+			channel@6{
+				channel-en = "disabled";
+				low-pass-filter;
+			};
+
+			channel@7{
+				channel-en = "disabled";
+				low-pass-filter;
+			};
 		};
 	};
 

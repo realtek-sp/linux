@@ -100,6 +100,10 @@ static const struct mfd_cell rts591x_mfd_cells_hpm[] = {
 		.pdata_size = sizeof(struct rts591x_model_pdata),
 		.id = 2,
 	},
+	{
+		.name = "rts591x-adc-hpm",
+		.of_compatible = "realtek,rts591x-adc",
+	}
 };
 
 static const struct regmap_config rts591x_regmap_config = {
