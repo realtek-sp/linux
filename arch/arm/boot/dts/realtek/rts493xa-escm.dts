@@ -84,8 +84,8 @@
 };
 
 &leds {
-	ledbmc: identify {
-		gpios = <&pinctrl 26 GPIO_ACTIVE_LOW>;
+	led_hpm: identify {
+		gpios = <&gpio_hpm 0 GPIO_ACTIVE_HIGH>;
 		status = "okay";
 	};
 };
@@ -113,9 +113,11 @@
 			status = "okay";
 		};
 
-		gpio {
+		gpio_scm: gpio {
 			compatible = "realtek,rts591x-gpio";
 			reg = <0x40090000>;
+			#gpio-cells = <2>;
+
 			gpio-line-names =
 			"ESCM_GPIO000", "ESCM_GPIO001", "ESCM_GPIO002", "ESCM_GPIO003",
 			"ESCM_GPIO004", "ESCM_GPIO005", "ESCM_GPIO006", "ESCM_GPIO007",
@@ -278,10 +280,11 @@
 			compatible = "realtek,iomatrix-uapi";
 		};
 
-		gpio {
+		gpio_hpm: gpio {
 			compatible = "realtek,rts591x-gpio";
 			reg = <0x40090000>;
 			status = "okay";
+			#gpio-cells = <2>;
 
 			gpio-line-names =
 			"HPM_GPIO000", "HPM_GPIO001", "HPM_GPIO002", "HPM_GPIO003",
