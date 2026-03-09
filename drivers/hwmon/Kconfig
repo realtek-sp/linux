@@ -2384,6 +2384,7 @@ config SENSORS_INTEL_M10_BMC_HWMON
 config SENSORS_PWM_FAN_IOMATRIX
 	tristate "IOMATRIX PWM_FAN support"
 		depends on MFD_RTS591X_I2C
+		select SENSORS_PWM_FAN
 		help
 		This enables support for IOMATRIX pwm and fantacho, Say Y here to use IOMATRIX pwm-fan driver to
 		configure IOMATRIX pwm and fantacho device.

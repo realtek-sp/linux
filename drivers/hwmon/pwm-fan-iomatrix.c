@@ -38,6 +38,7 @@
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
 #include <linux/timer.h>
+#include <linux/pwm.h>
 #include <linux/mfd/iomatrix.h>
 
 /*PWM Duty Register*/
@@ -84,11 +85,14 @@
 #define RTS591X_PWM_MAX_CAHNNEL		  8
 #define RTS591X_PWM_DEFAULT_DUTY_PERCENT  (1 / 2)
 #define RTS591X_FAN_PULSES_RESOLUTION	  2
-#define RTS591X_WAIT_FAN_READY_TIMEOUT_US (100000) /* us */
+#define RTS591X_WAIT_FAN_READY_TIMEOUT_US (1000000) /* us */
 #define RTS591X_POLL_SLEEP		  (2000) /* us */
 #define RTS591X_TACH_MODE_HZ		  100000
 #define RTS591X_POLLING_TIMER_PERIOD	  msecs_to_jiffies(10) /*ms*/
-#define RTS591X_PWM_MIN_DIV		  (10)
+#define RTS591X_SYS_CLOCK_1		  (32768)
+#define RTS591X_SYS_CLOCK_2		  (50000000)
+#define MAX_PERIOD			  1
+#define RTS591X_DEFAULT_DIVIDER		  (0x800)
 enum RTS591X_tacho_edge_sel {
 	HALF_TACH_PERIOD,
 	ONE_TACH_PERIOD,
@@ -105,32 +109,20 @@ struct rts591x_fan_tacho_dev {
 	u8 pulses_per_revolution;
 };
 
-struct rts591x_cooling_device {
-	char name[THERMAL_NAME_LENGTH];
-	struct rts591x_pwm_fan_data *priv;
-	struct thermal_cooling_device *tcdev;
-	int pwm_port;
-	u32 *cooling_levels;
-	u8 max_state;
-	u8 cur_state;
-};
-
 struct rts591x_pwm_fan_data {
 	struct device *dev;
 	u32 pwm_base;
 	u32 fan_base;
-	u32 pwm_clock_div;
 	u8 pwm_clock_src;
 	u8 fan_read_mode;
 	u8 fan_edge_sel;
-	bool fan_cnt_ready_int;
+	bool sample_work;
 	struct regmap *regmap;
+	struct pwm_chip chip;
 	bool fan_present[RTS591X_FAN_TACH_MAX_CAHNNEL];
 	struct rts591x_fan_tacho_dev fan_dev[RTS591X_FAN_TACH_MAX_CAHNNEL];
-	struct rts591x_cooling_device *cdev[RTS591X_PWM_MAX_CAHNNEL];
 	struct mutex pwm_lock;
 	struct delayed_work poll_work;
-	ktime_t sample_start;
 	struct mutex fan_lock[RTS591X_FAN_TACH_MAX_CAHNNEL];
 };
 
@@ -139,33 +131,11 @@ static umode_t rts591x_is_visible(const void *priv,
 				  int channel)
 {
 	switch (type) {
-	case hwmon_pwm:
-		return 0644;
 	case hwmon_fan:
 		return 0444;
 	default:
 		return 0;
 	}
-}
-static int rts591x_read_pwm(struct device *dev, u32 attr, int channel,
-			    long *val)
-{
-	struct rts591x_pwm_fan_data *priv = dev_get_drvdata(dev);
-	int ret;
-
-	mutex_lock(&priv->pwm_lock);
-	switch (attr) {
-	case hwmon_pwm_input:
-		ret = regmap_read(priv->regmap,
-				  priv->pwm_base + RTS591X_PWM_DUTY(channel),
-				  (u32)val);
-		break;
-	default:
-		dev_err(priv->dev, "Read pwm%d failed\n", channel);
-		ret = EOPNOTSUPP;
-	}
-	mutex_unlock(&priv->pwm_lock);
-	return ret;
 }
 
 static int calulate_rpm(struct rts591x_pwm_fan_data *priv, int index)
@@ -214,83 +184,16 @@ static int rts591x_read_fan(struct device *dev, u32 attr, int channel,
 	return ret;
 }
 
-static int set_pwm(struct rts591x_pwm_fan_data *priv, u32 pwm_port, long val)
-{
-	int ret;
-	ret = regmap_update_bits(priv->regmap,
-				 priv->pwm_base + RTS591X_PWM_DUTY(pwm_port),
-				 RTS591X_PWM_DUTY_MASK, (u32)(val));
-	if (ret) {
-		dev_err(priv->dev, "Update pwm duty failed:%d", ret);
-		return ret;
-	}
-	regmap_update_bits(priv->regmap,
-			   priv->pwm_base + RTS591X_PWM_CTRL(pwm_port),
-			   RTS591X_PWM_CTRL_EN, RTS591X_PWM_CTRL_EN);
-	return 0;
-}
-
-static int rts591x_write_pwm(struct device *dev, u32 attr, int channel,
-			     long val)
-{
-	struct rts591x_pwm_fan_data *priv = dev_get_drvdata(dev);
-	int ret;
-
-	mutex_lock(&priv->pwm_lock);
-	switch (attr) {
-	case hwmon_pwm_input:
-		if (val < 0 || val > priv->pwm_clock_div) {
-			ret = -EINVAL;
-			goto out;
-		} else if (val < priv->pwm_clock_div / RTS591X_PWM_MIN_DIV) {
-			val = priv->pwm_clock_div / RTS591X_PWM_MIN_DIV;
-		}
-		ret = set_pwm(priv, channel, val);
-		if (ret) {
-			goto out;
-		}
-		break;
-	default:
-		ret = EOPNOTSUPP;
-	}
-out:
-	mutex_unlock(&priv->pwm_lock);
-	return ret;
-}
-
 static int rts591x_read(struct device *dev, enum hwmon_sensor_types type,
 			u32 attr, int channel, long *val)
 {
 	switch (type) {
-	case hwmon_pwm:
-		return rts591x_read_pwm(dev, attr, channel, val);
 	case hwmon_fan:
 		return rts591x_read_fan(dev, attr, channel, val);
 	default:
 		return -EOPNOTSUPP;
 	}
 }
-
-static int rts591x_write(struct device *dev, enum hwmon_sensor_types type,
-			 u32 attr, int channel, long val)
-{
-	switch (type) {
-	case hwmon_pwm:
-		return rts591x_write_pwm(dev, attr, channel, val);
-	default:
-		return -EOPNOTSUPP;
-	}
-}
-static const u32 rts591x_pwm_config[] = {
-	HWMON_PWM_INPUT, HWMON_PWM_INPUT, HWMON_PWM_INPUT,
-	HWMON_PWM_INPUT, HWMON_PWM_INPUT, HWMON_PWM_INPUT,
-	HWMON_PWM_INPUT, HWMON_PWM_INPUT, 0
-};
-
-static const struct hwmon_channel_info rts591x_pwm = {
-	.type = hwmon_pwm,
-	.config = rts591x_pwm_config,
-};
 
 static const u32 rts591x_fan_config[] = {
 	HWMON_F_INPUT | HWMON_F_MIN | HWMON_F_MAX | HWMON_F_PULSES,
@@ -304,13 +207,11 @@ static const struct hwmon_channel_info rts591x_fan = {
 	.config = rts591x_fan_config,
 };
 
-static const struct hwmon_channel_info *rts591x_info[] = { &rts591x_pwm,
-							   &rts591x_fan, NULL };
+static const struct hwmon_channel_info *rts591x_info[] = { &rts591x_fan, NULL };
 
 static const struct hwmon_ops rts591x_hwmon_ops = {
 	.is_visible = rts591x_is_visible,
 	.read = rts591x_read,
-	.write = rts591x_write,
 };
 
 static const struct hwmon_chip_info rts591x_chip_info = {
@@ -318,137 +219,71 @@ static const struct hwmon_chip_info rts591x_chip_info = {
 	.info = rts591x_info,
 };
 
-static ssize_t divider_show(struct device *dev, struct device_attribute *attr,
-			    char *buf)
-{
-	struct rts591x_pwm_fan_data *priv = dev_get_drvdata(dev);
-	return sprintf(buf, "%d\n", priv->pwm_clock_div);
-}
-
-static SENSOR_DEVICE_ATTR_RO(pwm_divider1, divider, 0);
-static SENSOR_DEVICE_ATTR_RO(pwm_divider2, divider, 1);
-static SENSOR_DEVICE_ATTR_RO(pwm_divider3, divider, 2);
-static SENSOR_DEVICE_ATTR_RO(pwm_divider4, divider, 3);
-static SENSOR_DEVICE_ATTR_RO(pwm_divider5, divider, 4);
-static SENSOR_DEVICE_ATTR_RO(pwm_divider6, divider, 5);
-static SENSOR_DEVICE_ATTR_RO(pwm_divider7, divider, 6);
-static SENSOR_DEVICE_ATTR_RO(pwm_divider8, divider, 7);
-
-static struct attribute *divider_attrs[] = {
-	&sensor_dev_attr_pwm_divider1.dev_attr.attr,
-	&sensor_dev_attr_pwm_divider2.dev_attr.attr,
-	&sensor_dev_attr_pwm_divider3.dev_attr.attr,
-	&sensor_dev_attr_pwm_divider4.dev_attr.attr,
-	&sensor_dev_attr_pwm_divider5.dev_attr.attr,
-	&sensor_dev_attr_pwm_divider6.dev_attr.attr,
-	&sensor_dev_attr_pwm_divider7.dev_attr.attr,
-	&sensor_dev_attr_pwm_divider8.dev_attr.attr,
-	NULL,
-};
-
-static const struct attribute_group pwm_divider_group = {
-	.attrs = divider_attrs,
-};
-
-static const struct attribute_group *rts591x_costum_groups[] = {
-	&pwm_divider_group, NULL
-};
-
 static void rts591x_sample_handler(struct work_struct *work)
 {
 	struct delayed_work *dwork = to_delayed_work(work);
 	struct rts591x_pwm_fan_data *priv =
 		container_of(dwork, struct rts591x_pwm_fan_data, poll_work);
+	int i, ret;
 
-	unsigned int delta = ktime_ms_delta(ktime_get(), priv->sample_start);
-	int i;
+	for (i = 0; i < RTS591X_FAN_TACH_MAX_CAHNNEL; i++) {
+		if (!priv->fan_present[i])
+			continue;
 
-	if (delta) {
-		for (i = 0; i < RTS591X_FAN_TACH_MAX_CAHNNEL; i++) {
-			if (!priv->fan_present[i])
-				continue;
+		u32 counter, val;
 
-			u32 counter;
-			regmap_read(priv->regmap,
-				    priv->fan_base + RTS591X_FAN_TACH_CTRL(i),
-				    &counter);
-			counter = FIELD_GET(RTS591X_FAN_TACH_CTRL_CNT, counter);
-			if (counter >= priv->fan_dev[i].counter) {
-				priv->fan_dev[i].rpm = DIV_ROUND_CLOSEST(
-					(counter - priv->fan_dev[i].counter) *
-						1000 * 60,
-					delta * RTS591X_FAN_PULSES_RESOLUTION);
-			} else {
-				priv->fan_dev[i].rpm = DIV_ROUND_CLOSEST(
-					(0xFFFF - priv->fan_dev[i].counter +
-					 counter) *
-						1000 * 60,
-					delta * RTS591X_FAN_PULSES_RESOLUTION);
-			}
-			priv->fan_dev[i].counter = counter;
+		ret = regmap_read_poll_timeout(
+			priv->regmap, priv->fan_base + RTS591X_FAN_TACH_STS(i),
+			val, (val & RTS591X_FAN_TACH_STS_CNTRDY),
+			RTS591X_POLL_SLEEP, RTS591X_WAIT_FAN_READY_TIMEOUT_US);
+		if (ret) {
+			dev_dbg(priv->dev,
+				"Timeout waiting for read fan counter ready\n");
+			priv->fan_dev[i].counter = 0;
+			priv->fan_dev[i].rpm = 0;
+			continue;
 		}
+		regmap_read(priv->regmap,
+			    priv->fan_base + RTS591X_FAN_TACH_CTRL(i),
+			    &counter);
+		priv->fan_dev[i].counter =
+			FIELD_GET(RTS591X_FAN_TACH_CTRL_CNT, counter);
+
+		priv->fan_dev[i].rpm = calulate_rpm(priv, i);
+
+		regmap_write(priv->regmap,
+			     priv->fan_base + RTS591X_FAN_TACH_STS(i),
+			     RTS591X_FAN_TACH_STS_CNTRDY);
 	}
-	priv->sample_start = ktime_get();
+
 	schedule_delayed_work(&priv->poll_work, RTS591X_POLLING_TIMER_PERIOD);
-}
-
-static irqreturn_t rts591x_fan_isr(int irq, void *dev_id)
-{
-	struct rts591x_pwm_fan_data *priv = dev_id;
-	u32 val, counter;
-	int ret;
-	int index = irq - priv->fan_dev[0].irq;
-	if (index < 0 || index > RTS591X_TACHO3_INT) {
-		dev_err(priv->dev, "Invalid channel:%d", index);
-		return IRQ_HANDLED;
-	}
-
-	mutex_lock(&priv->fan_lock[index]);
-	ret = regmap_read_poll_timeout(
-		priv->regmap, priv->fan_base + RTS591X_FAN_TACH_STS(index), val,
-		(val & RTS591X_FAN_TACH_STS_CNTRDY), RTS591X_POLL_SLEEP,
-		RTS591X_WAIT_FAN_READY_TIMEOUT_US);
-	if (ret) {
-		dev_err(priv->dev,
-			"Timeout waiting for read interrupt for fan counter ready\n");
-		priv->fan_dev[index].rpm = 0;
-		priv->fan_dev[index].counter = 0;
-		goto out;
-	}
-
-	regmap_read(priv->regmap, priv->fan_base + RTS591X_FAN_TACH_CTRL(index),
-		    &counter);
-	priv->fan_dev[index].counter =
-		FIELD_GET(RTS591X_FAN_TACH_CTRL_CNT, counter);
-	priv->fan_dev[index].rpm = calulate_rpm(priv, index);
-out:
-	/*clear interrupt bits*/
-	regmap_write(priv->regmap, priv->fan_base + RTS591X_FAN_TACH_STS(index),
-		     BIT(3));
-	mutex_unlock(&priv->fan_lock[index]);
-
-	return IRQ_HANDLED;
 }
 
 static int rts591x_en_pwm_port(struct rts591x_pwm_fan_data *priv, u32 pwm_port)
 {
 	mutex_lock(&priv->pwm_lock);
+	/*Reset PWM register before configuring it*/
+	regmap_update_bits(priv->regmap,
+			   priv->pwm_base + RTS591X_PWM_CTRL(pwm_port),
+			   RTS591X_PWM_CTRL_RST, RTS591X_PWM_CTRL_RST);
 
 	regmap_update_bits(priv->regmap,
 			   priv->pwm_base + RTS591X_PWM_CTRL(pwm_port),
 			   RTS591X_PWM_CTRL_CLKSRC,
 			   priv->pwm_clock_src ? RTS591X_PWM_CTRL_CLKSRC : 0);
+
 	regmap_update_bits(priv->regmap,
 			   priv->pwm_base + RTS591X_PWM_CTRL(pwm_port),
 			   RTS591X_PWM_CTRL_INVT, 0);
+
 	regmap_update_bits(priv->regmap,
 			   priv->pwm_base + RTS591X_PWM_DIV(pwm_port),
-			   RTS591X_PWM_DIV_MASK, priv->pwm_clock_div);
+			   RTS591X_PWM_DIV_MASK, RTS591X_DEFAULT_DIVIDER);
 
 	/*Default 50% duty cycle*/
 	regmap_update_bits(priv->regmap,
 			   priv->pwm_base + RTS591X_PWM_DUTY(pwm_port),
-			   RTS591X_PWM_DUTY_MASK, priv->pwm_clock_div >> 1);
+			   RTS591X_PWM_DUTY_MASK, RTS591X_DEFAULT_DIVIDER >> 1);
 
 	regmap_update_bits(priv->regmap,
 			   priv->pwm_base + RTS591X_PWM_CTRL(pwm_port),
@@ -459,85 +294,128 @@ static int rts591x_en_pwm_port(struct rts591x_pwm_fan_data *priv, u32 pwm_port)
 	return 0;
 }
 
-static int rts591x_pwm_cz_get_max_state(struct thermal_cooling_device *tcdev,
-					unsigned long *state)
+static int rts591x_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
+			     const struct pwm_state *state)
 {
-	struct rts591x_cooling_device *cdev = tcdev->devdata;
+	struct rts591x_pwm_fan_data *priv =
+		container_of(chip, struct rts591x_pwm_fan_data, chip);
+	u32 hwpwm = pwm->hwpwm, config_divisor, config_duty_trans;
+	u64 min_period, config_period, config_duty_cycle;
+	u32 sys_clock = priv->pwm_clock_src ? RTS591X_SYS_CLOCK_1 :
+					      RTS591X_SYS_CLOCK_2;
+	u64 dividend;
+	enum pwm_polarity config_polarity = state->polarity;
 
-	*state = cdev->max_state;
+	min_period = (u64)DIV_ROUND_CLOSEST(NSEC_PER_SEC, sys_clock);
 
-	return 0;
-}
+	config_period = max(state->period, min_period);
+	config_divisor = DIV_U64_ROUND_CLOSEST((u64)sys_clock * config_period,
+					       NSEC_PER_SEC);
 
-static int rts591x_pwm_cz_get_cur_state(struct thermal_cooling_device *tcdev,
-					unsigned long *state)
-{
-	struct rts591x_cooling_device *cdev = tcdev->devdata;
+	if (config_period != pwm->state.period) {
+		regmap_update_bits(priv->regmap,
+				   priv->pwm_base + RTS591X_PWM_CTRL(hwpwm),
+				   RTS591X_PWM_CTRL_EN, 0);
 
-	*state = cdev->cur_state;
-
-	return 0;
-}
-
-static int rts591x_pwm_cz_set_cur_state(struct thermal_cooling_device *tcdev,
-					unsigned long state)
-{
-	int ret;
-	struct rts591x_cooling_device *cdev = tcdev->devdata;
-
-	if (state > cdev->max_state)
-		return -EINVAL;
-	cdev->cur_state = state;
-	mutex_lock(&cdev->priv->pwm_lock);
-	ret = set_pwm(cdev->priv, cdev->pwm_port,
-		      cdev->cooling_levels[cdev->cur_state]);
-	mutex_unlock(&cdev->priv->pwm_lock);
-	return ret;
-}
-
-static const struct thermal_cooling_device_ops rts591x_pwm_cool_ops = {
-	.get_max_state = rts591x_pwm_cz_get_max_state,
-	.get_cur_state = rts591x_pwm_cz_get_cur_state,
-	.set_cur_state = rts591x_pwm_cz_set_cur_state,
-};
-
-static int rts591x_create_pwm_cooling(struct device *dev,
-				      struct device_node *child,
-				      struct rts591x_pwm_fan_data *priv,
-				      u32 pwm_port, u8 num_levels)
-{
-	int ret;
-	struct rts591x_cooling_device *cdev;
-
-	cdev = devm_kzalloc(dev, sizeof(*cdev), GFP_KERNEL);
-	if (!cdev)
-		return -ENOMEM;
-
-	cdev->cooling_levels = devm_kzalloc(dev, num_levels, GFP_KERNEL);
-	if (!cdev->cooling_levels)
-		return -ENOMEM;
-
-	cdev->max_state = num_levels - 1;
-	ret = of_property_read_u32_array(child, "cooling-levels",
-					 cdev->cooling_levels, num_levels);
-	if (ret) {
-		dev_err(dev, "Property 'cooling-levels' cannot be read.\n");
-		return ret;
+		regmap_update_bits(priv->regmap,
+				   priv->pwm_base + RTS591X_PWM_DIV(hwpwm),
+				   RTS591X_PWM_DIV_MASK, config_divisor);
+		pwm->state.enabled = false;
 	}
-	snprintf(cdev->name, THERMAL_NAME_LENGTH, "%s%d", child->name,
-		 pwm_port);
 
-	cdev->tcdev = thermal_of_cooling_device_register(
-		child, cdev->name, cdev, &rts591x_pwm_cool_ops);
-	if (IS_ERR(cdev->tcdev))
-		return PTR_ERR(cdev->tcdev);
+	config_duty_cycle = min(state->duty_cycle, config_period);
+	dividend = config_duty_cycle * (u64)config_divisor;
+	config_duty_trans = DIV_U64_ROUND_CLOSEST(dividend, config_period);
+	if (config_duty_cycle != pwm->state.duty_cycle) {
+		regmap_update_bits(priv->regmap,
+				   priv->pwm_base + RTS591X_PWM_DUTY(hwpwm),
+				   RTS591X_PWM_DUTY_MASK, config_duty_trans);
+	}
 
-	cdev->priv = priv;
-	cdev->pwm_port = pwm_port;
+	if (config_polarity != pwm->state.polarity) {
+		regmap_update_bits(priv->regmap,
+				   priv->pwm_base + RTS591X_PWM_CTRL(hwpwm),
+				   RTS591X_PWM_CTRL_EN, 0);
 
-	priv->cdev[pwm_port] = cdev;
+		regmap_update_bits(priv->regmap,
+				   priv->pwm_base + RTS591X_PWM_CTRL(hwpwm),
+				   RTS591X_PWM_CTRL_INVT,
+				   state->polarity ? RTS591X_PWM_CTRL_INVT : 0);
+		pwm->state.enabled = false;
+	}
+
+	if (state->enabled != pwm->state.enabled) {
+		regmap_update_bits(priv->regmap,
+				   priv->pwm_base + RTS591X_PWM_CTRL(hwpwm),
+				   RTS591X_PWM_CTRL_EN,
+				   state->enabled ? RTS591X_PWM_CTRL_EN : 0);
+	}
 
 	return 0;
+}
+
+static int rts591x_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
+				 struct pwm_state *state)
+{
+	struct rts591x_pwm_fan_data *priv =
+		container_of(chip, struct rts591x_pwm_fan_data, chip);
+	u32 divisor, hwpwm = pwm->hwpwm, duty_cycle, val;
+	u64 period;
+	enum pwm_polarity polarity;
+	bool enabled;
+
+	u32 sys_clock = priv->pwm_clock_src ? RTS591X_SYS_CLOCK_1 :
+					      RTS591X_SYS_CLOCK_2;
+	regmap_read(priv->regmap, priv->pwm_base + RTS591X_PWM_DUTY(hwpwm),
+		    &duty_cycle);
+
+	regmap_read(priv->regmap, priv->pwm_base + RTS591X_PWM_DIV(hwpwm),
+		    &divisor);
+	regmap_read(priv->regmap, priv->pwm_base + RTS591X_PWM_CTRL(hwpwm),
+		    &val);
+	period = DIV_U64_ROUND_CLOSEST((u64)divisor, sys_clock) * NSEC_PER_SEC;
+	enabled = FIELD_GET(RTS591X_PWM_CTRL_EN, val);
+	polarity = FIELD_GET(RTS591X_PWM_CTRL_INVT, val);
+
+	state->period = period;
+	state->duty_cycle = duty_cycle;
+	state->polarity = polarity;
+	state->enabled = enabled;
+	return 0;
+}
+
+static const struct pwm_ops rts591x_pwm_ops = {
+	.apply = rts591x_pwm_apply,
+	.get_state = rts591x_pwm_get_state,
+};
+static struct pwm_device *rts591x_pwm_xlate(struct pwm_chip *chip,
+					    const struct of_phandle_args *args)
+{
+	struct pwm_device *pwm;
+
+	if (chip->of_pwm_n_cells < 2)
+		return ERR_PTR(-EINVAL);
+
+	if (args->args_count < 2)
+		return ERR_PTR(-EINVAL);
+
+	if (args->args[0] >= chip->npwm)
+		return ERR_PTR(-EINVAL);
+
+	pwm = pwm_request_from_chip(chip, args->args[0], NULL);
+	if (IS_ERR(pwm))
+		return pwm;
+
+	pwm->args.period = args->args[1];
+	pwm->args.polarity = PWM_POLARITY_NORMAL;
+
+	if (chip->of_pwm_n_cells >= 2) {
+		if (args->args_count > 2 &&
+		    args->args[2] & PWM_POLARITY_INVERSED)
+			pwm->args.polarity = PWM_POLARITY_INVERSED;
+	}
+
+	return pwm;
 }
 
 static int rts591x_enable_tacho(struct rts591x_pwm_fan_data *priv)
@@ -547,38 +425,15 @@ static int rts591x_enable_tacho(struct rts591x_pwm_fan_data *priv)
 		if (!priv->fan_present[index])
 			continue;
 
-		if (priv->fan_cnt_ready_int) {
-			/*Default use 100KHZ read mode, low-filter-pass*/
-			regmap_update_bits(priv->regmap,
-					   priv->fan_base +
-						   RTS591X_FAN_TACH_CTRL(index),
-					   RTS591X_FAN_TACH_SELEDGE |
-						   RTS591X_FAN_TACH_READMODE |
-						   RTS591X_FAN_TACH_FILTEREN,
-					   ((priv->fan_edge_sel << 2) &
-					    RTS591X_FAN_TACH_SELEDGE) |
-						   RTS591X_FAN_TACH_READMODE |
-						   RTS591X_FAN_TACH_FILTEREN);
-		} else {
-			regmap_update_bits(priv->regmap,
-					   priv->fan_base +
-						   RTS591X_FAN_TACH_CTRL(index),
-					   RTS591X_FAN_TACH_SELEDGE |
-						   RTS591X_FAN_TACH_READMODE |
-						   RTS591X_FAN_TACH_FILTEREN,
-					   ((priv->fan_edge_sel << 2) &
-					    RTS591X_FAN_TACH_SELEDGE) |
-						   RTS591X_FAN_TACH_FILTEREN);
-		}
+		regmap_update_bits(
+			priv->regmap,
+			priv->fan_base + RTS591X_FAN_TACH_CTRL(index),
+			RTS591X_FAN_TACH_SELEDGE | RTS591X_FAN_TACH_READMODE |
+				RTS591X_FAN_TACH_FILTEREN,
+			((priv->fan_edge_sel << 2) & RTS591X_FAN_TACH_SELEDGE) |
+				RTS591X_FAN_TACH_READMODE |
+				RTS591X_FAN_TACH_FILTEREN);
 
-		regmap_update_bits(priv->regmap,
-				   priv->fan_base +
-					   RTS591X_FAN_TACH_INTEN(index),
-				   RTS591X_FAN_TACH_INTEN_CNTRDY,
-				   priv->fan_cnt_ready_int ?
-					   RTS591X_FAN_TACH_INTEN_CNTRDY :
-					   0);
-		/*Set the fan tacho limit 0x0000 <= rpm <= 0xFFFF*/
 		regmap_update_bits(
 			priv->regmap,
 			priv->fan_base + RTS591X_FAN_TACH_LIMITH(index),
@@ -596,14 +451,11 @@ static int rts591x_enable_tacho(struct rts591x_pwm_fan_data *priv)
 		if (ret) {
 			dev_err(priv->dev, "Enable fan channel %d failed",
 				index);
+			return ret;
 		}
 	}
 
-	if (!priv->fan_cnt_ready_int) {
-		priv->sample_start = ktime_get();
-		schedule_delayed_work(&priv->poll_work,
-				      RTS591X_POLLING_TIMER_PERIOD);
-	}
+	schedule_delayed_work(&priv->poll_work, RTS591X_POLLING_TIMER_PERIOD);
 
 	return ret;
 }
@@ -611,81 +463,51 @@ static int rts591x_enable_tacho(struct rts591x_pwm_fan_data *priv)
 static int rts591x_enable_pwm_fan(struct device *dev, struct device_node *child,
 				  struct rts591x_pwm_fan_data *priv)
 {
-	u8 *fan_ch;
+	u8 fan_ch;
 	u32 pwm_port;
-	int ret, fan_count;
-	u8 index, ch;
+	int ret;
 
 	ret = of_property_read_u32(child, "reg", &pwm_port);
 	if (ret)
 		return ret;
 
 	rts591x_en_pwm_port(priv, pwm_port);
-
-	ret = of_property_count_u32_elems(child, "cooling-levels");
-	if (ret > 0) {
-		ret = rts591x_create_pwm_cooling(dev, child, priv, pwm_port,
-						 ret);
-		if (ret)
-			return ret;
-	}
-
-	fan_count = of_property_count_u8_elems(child, "fan-tach-ch");
-	if (fan_count < 1)
-		return -EINVAL;
-
-	fan_ch = devm_kcalloc(dev, fan_count, sizeof(*fan_ch), GFP_KERNEL);
-	if (!fan_ch)
-		return -ENOMEM;
-	ret = of_property_read_u8_array(child, "fan-tach-ch", fan_ch,
-					fan_count);
-	if (ret)
+	ret = of_property_read_u8(child, "fan-tach-ch", &fan_ch);
+	if (ret) {
+		dev_err(dev, "Get tacho chan failed\n");
 		return ret;
-
-	for (ch = 0; ch < fan_count; ch++) {
-		index = fan_ch[ch];
-		priv->fan_present[index] = true;
-		priv->fan_dev[index].pulses_per_revolution =
-			RTS591X_FAN_PULSES_RESOLUTION;
-		priv->fan_dev[index].min = 0;
-		priv->fan_dev[index].max = 0x7530;
 	}
+	priv->fan_present[fan_ch] = true;
+	priv->fan_dev[fan_ch].pulses_per_revolution =
+		RTS591X_FAN_PULSES_RESOLUTION;
+	priv->fan_dev[fan_ch].min = 0;
+	priv->fan_dev[fan_ch].max = 0x7530; // Max rpm = 30000
 
 	return 0;
 }
 
-static int rts591x_pwm_init(struct rts591x_pwm_fan_data *priv)
+static int rts591x_dt_pwm_init(struct rts591x_pwm_fan_data *priv)
 {
 	struct device *dev = priv->dev;
-	struct device_node *pwms_node;
-	u32 clock_config[2];
+	u32 clock_src;
 	int ret;
 
-	pwms_node = of_get_child_by_name(dev->of_node, "pwms");
-	if (!pwms_node) {
-		dev_err(dev, "Failed to get pwms node");
-		return -ENODEV;
-	}
-
-	ret = of_property_read_u32(pwms_node, "reg", &priv->pwm_base);
+	ret = of_property_read_u32(dev->of_node, "reg", &priv->pwm_base);
 	if (ret) {
 		dev_err(dev, "Failed to get base address for pwm device");
 		return -ENODEV;
 	}
 
-	ret = of_property_read_u32_array(pwms_node, "clock-config",
-					 clock_config,
-					 ARRAY_SIZE(clock_config));
+	ret = of_property_read_u32(dev->of_node, "clock-source", &clock_src);
 	if (ret) {
-		dev_warn(dev, "clock-config not exist, use the default");
-		priv->pwm_clock_div = 0x800;
+		dev_warn(
+			dev,
+			"'clock-source' attribute not exist, use the default[Clock_SRC: PLL/2]");
 		priv->pwm_clock_src = 0;
 	} else {
-		priv->pwm_clock_div = clock_config[0];
-		priv->pwm_clock_src = clock_config[1];
+		priv->pwm_clock_src = clock_src;
 	}
 
-	of_node_put(pwms_node);
 	return 0;
 };
 
@@ -698,7 +520,7 @@ static int rts591x_fan_Init(struct rts591x_pwm_fan_data *priv)
 
 	fans_node = of_get_child_by_name(dev->of_node, "fans");
 	if (!fans_node) {
-		dev_err(dev, "Failed to get fans node");
+		dev_warn(dev, "Failed to get fans node");
 		return -ENODEV;
 	}
 
@@ -716,14 +538,11 @@ static int rts591x_fan_Init(struct rts591x_pwm_fan_data *priv)
 		priv->fan_edge_sel = edge_selection;
 	}
 
-	priv->fan_cnt_ready_int =
-		of_property_read_bool(fans_node, "cnt-ready-interrupt-en");
-
 	for_each_child_of_node(fans_node, child) {
 		ret = rts591x_enable_pwm_fan(dev, child, priv);
 		if (ret) {
-			dev_err(dev, "enable pwm and fan failed\n");
 			of_node_put(child);
+			dev_err(dev, "Enable fan tacho failed\n");
 			return ret;
 		}
 	}
@@ -733,13 +552,13 @@ static int rts591x_fan_Init(struct rts591x_pwm_fan_data *priv)
 
 static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 {
-	int ret, virq, index;
+	int ret, index;
 	struct device *dev = &pdev->dev;
 	struct device *parent = dev->parent;
 	struct device *hwmon;
 	struct rts591x_mfd_dev *mfd_dev;
 	struct rts591x_pwm_fan_data *priv;
-	const char *irq_name, *name;
+	const char *name;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -765,7 +584,7 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 		mutex_init(&priv->fan_lock[index]);
 	}
 
-	ret = rts591x_pwm_init(priv);
+	ret = rts591x_dt_pwm_init(priv);
 	if (ret) {
 		dev_err(dev, "Init pwm failed:%d", ret);
 		return ret;
@@ -773,37 +592,12 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 
 	ret = rts591x_fan_Init(priv);
 	if (ret) {
-		dev_err(dev, "Init fan failed:%d", ret);
-		return ret;
+		dev_warn(dev, "Init fan failed or no fan devices exist");
+		goto out;
 	}
 
-	if (priv->fan_cnt_ready_int) {
-		for (index = 0; index < RTS591X_FAN_TACH_MAX_CAHNNEL; index++) {
-			if (!priv->fan_present[index])
-				continue;
-
-			virq = regmap_irq_get_virq(mfd_dev->irq_data,
-						   RTS591X_TACHO0_INT + index);
-			if (virq < 0) {
-				dev_err(dev, "Failed to get IRQ: %d\n", virq);
-				return virq;
-			}
-			priv->fan_dev[index].irq = virq;
-			irq_name = devm_kasprintf(dev, GFP_KERNEL, "%s_%d",
-						  dev->of_node->name, index);
-			ret = devm_request_threaded_irq(dev, virq, NULL,
-							rts591x_fan_isr,
-							IRQF_ONESHOT, irq_name,
-							priv);
-			if (ret) {
-				dev_err(dev, "register IRQ fan%d failed\n",
-					ret);
-				return ret;
-			}
-		}
-	} else {
-		INIT_DELAYED_WORK(&priv->poll_work, rts591x_sample_handler);
-	}
+	INIT_DELAYED_WORK(&priv->poll_work, rts591x_sample_handler);
+	priv->sample_work = true;
 
 	ret = rts591x_enable_tacho(priv);
 	if (ret) {
@@ -811,15 +605,23 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 		return ret;
 	}
 	name = devm_kasprintf(dev, GFP_KERNEL, "%s", dev->of_node->name);
-	strreplace((char *)name, '-', '_');
-	hwmon = devm_hwmon_device_register_with_info(
-		dev, name, priv, &rts591x_chip_info, rts591x_costum_groups);
-
+	hwmon = devm_hwmon_device_register_with_info(dev, name, priv,
+						     &rts591x_chip_info, NULL);
 	if (IS_ERR(hwmon)) {
 		dev_err(dev,
 			"unable to register rts591x_pwm_fan hwmon device\n");
 		return PTR_ERR(hwmon);
 	}
+out:
+	priv->chip.dev = dev;
+	priv->chip.npwm = RTS591X_PWM_MAX_CAHNNEL;
+	priv->chip.of_pwm_n_cells = 3;
+	priv->chip.of_xlate = rts591x_pwm_xlate;
+	priv->chip.ops = &rts591x_pwm_ops;
+
+	ret = devm_pwmchip_add(dev, &priv->chip);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to add PWM chip\n");
 
 	pr_info("RTS591X PWM-FAN Driver probed");
 
@@ -829,25 +631,14 @@ static int rts591x_pwm_fan_probe(struct platform_device *pdev)
 static void rts591x_pwn_fan_shutdown(struct platform_device *pdev)
 {
 	struct rts591x_pwm_fan_data *priv = platform_get_drvdata(pdev);
-	int index;
-	if (!priv->fan_cnt_ready_int)
+	if (priv->sample_work) {
 		cancel_delayed_work_sync(&priv->poll_work);
-	else {
-		for (index = 0; index < RTS591X_FAN_TACH_MAX_CAHNNEL; index++) {
-			mutex_lock(&priv->fan_lock[index]);
-			regmap_update_bits(priv->regmap,
-					   priv->fan_base +
-						   RTS591X_FAN_TACH_CTRL(index),
-					   RTS591X_FAN_TACH_EN, 0);
-			mutex_unlock(&priv->fan_lock[index]);
-			disable_irq(priv->fan_dev[index].irq);
-		}
 	}
 }
 
 static const struct of_device_id of_pwm_fan_match_table[] = {
 	{
-		.compatible = "realtek,rts591x-pwm-fan",
+		.compatible = "realtek,rts591x-pwm-tacho",
 	},
 };
 

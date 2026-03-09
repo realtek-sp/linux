@@ -31,6 +31,20 @@
 					<&rts_adc 7>;
 					*/
 	};
+
+	fan1 {
+			compatible = "pwm-fan";
+			cooling-levels = <0 102 170 230>;
+			pwms = <&rts591x_pwm 0 40960 0>;
+			pulses-per-revolution = <2>;
+		};
+
+	fan2 {
+			compatible = "pwm-fan";
+			cooling-levels = <0 102 170 230>;
+			pwms = <&rts591x_pwm 1 40960 0>;
+			pulses-per-revolution = <2>;
+		};
 };
 
 &spi0 {
@@ -168,7 +182,7 @@
 			status = "okay";
 		};
 
-		rts_adc: adc {
+		rts_adc: rts591x-adc {
 			compatible = "realtek,rts591x-adc";
 			reg = <0x4000FE00>;
 			linear-Calibration;
@@ -217,41 +231,37 @@
 			};
 		};
 
-		pwm_fan {
-			compatible = "realtek,rts591x-pwm-fan";
+		rts591x_pwm: rts591x_pwm_tacho {
+			compatible = "realtek,rts591x-pwm-tacho";
+			reg = <0x4000f000>;
+			clock-source= <0>; /*clock source selection*/
 			status = "okay";
-
-			pwms {
-				reg = <0x4000f000>;
-				clock-config= <0x800  0>; /* clock divider , clock source selection*/
-			};
+			#pwm-cells = <3>;
 
 			fans {
 				reg = <0x4000fd00>;
 				edge-selection = <0>;
-				cnt-ready-interrupt-en;
-
-				fan@0 {
+				// cnt-ready-interrupt-en;
+				rts591x-fan@0 {
 					reg = <0x00>;
 					fan-tach-ch = /bits/ 8 <0x00>;
 				};
 
-				fan@1 {
+				rts591x-fan@1 {
 					reg = <0x01>;
 					fan-tach-ch = /bits/ 8 <0x01>;
 				};
 
-				fan@2 {
+				rts591x-fan@2 {
 					reg = <0x02>;
 					fan-tach-ch = /bits/ 8 <0x02>;
 				};
 
-				fan@3 {
+				rts591x-fan@3 {
 					reg = <0x03>;
 					fan-tach-ch = /bits/ 8 <0x03>;
 				};
 			};
-
 		};
 	};
 
