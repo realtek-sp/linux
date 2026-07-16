@@ -7,6 +7,7 @@
 #define __KCS_BMC_H__
 
 #include <linux/list.h>
+#include <linux/mutex.h>
 
 #define KCS_BMC_EVENT_TYPE_OBE	BIT(0)
 #define KCS_BMC_EVENT_TYPE_IBF	BIT(1)
@@ -38,8 +39,10 @@ struct kcs_bmc_device {
 	struct kcs_ioreg ioreg;
 
 	const struct kcs_bmc_device_ops *ops;
+	bool io_can_sleep;
 
 	spinlock_t lock;
+	struct mutex mutex;
 	struct kcs_bmc_client *client;
 };
 

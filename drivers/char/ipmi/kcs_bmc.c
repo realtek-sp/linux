@@ -20,6 +20,24 @@ static DEFINE_MUTEX(kcs_bmc_lock);
 static LIST_HEAD(kcs_bmc_devices);
 static LIST_HEAD(kcs_bmc_drivers);
 
+static void kcs_bmc_device_lock(struct kcs_bmc_device *kcs_bmc,
+				unsigned long *flags)
+{
+	if (kcs_bmc->io_can_sleep)
+		mutex_lock(&kcs_bmc->mutex);
+	else
+		spin_lock_irqsave(&kcs_bmc->lock, *flags);
+}
+
+static void kcs_bmc_device_unlock(struct kcs_bmc_device *kcs_bmc,
+				  unsigned long *flags)
+{
+	if (kcs_bmc->io_can_sleep)
+		mutex_unlock(&kcs_bmc->mutex);
+	else
+		spin_unlock_irqrestore(&kcs_bmc->lock, *flags);
+}
+
 /* Consumer data access */
 
 u8 kcs_bmc_read_data(struct kcs_bmc_device *kcs_bmc)
@@ -56,13 +74,13 @@ irqreturn_t kcs_bmc_handle_event(struct kcs_bmc_device *kcs_bmc)
 {
 	struct kcs_bmc_client *client;
 	irqreturn_t rc = IRQ_NONE;
-	unsigned long flags;
+	unsigned long flags = 0;
 
-	spin_lock_irqsave(&kcs_bmc->lock, flags);
+	kcs_bmc_device_lock(kcs_bmc, &flags);
 	client = kcs_bmc->client;
 	if (client)
 		rc = client->ops->event(client);
-	spin_unlock_irqrestore(&kcs_bmc->lock, flags);
+	kcs_bmc_device_unlock(kcs_bmc, &flags);
 
 	return rc;
 }
@@ -70,9 +88,11 @@ EXPORT_SYMBOL(kcs_bmc_handle_event);
 
 int kcs_bmc_enable_device(struct kcs_bmc_device *kcs_bmc, struct kcs_bmc_client *client)
 {
+	unsigned long flags = 0;
 	int rc;
 
-	spin_lock_irq(&kcs_bmc->lock);
+	kcs_bmc_device_lock(kcs_bmc, &flags);
+
 	if (kcs_bmc->client) {
 		rc = -EBUSY;
 	} else {
@@ -82,7 +102,8 @@ int kcs_bmc_enable_device(struct kcs_bmc_device *kcs_bmc, struct kcs_bmc_client 
 		kcs_bmc_update_event_mask(kcs_bmc, mask, mask);
 		rc = 0;
 	}
-	spin_unlock_irq(&kcs_bmc->lock);
+
+	kcs_bmc_device_unlock(kcs_bmc, &flags);
 
 	return rc;
 }
@@ -90,14 +111,18 @@ EXPORT_SYMBOL(kcs_bmc_enable_device);
 
 void kcs_bmc_disable_device(struct kcs_bmc_device *kcs_bmc, struct kcs_bmc_client *client)
 {
-	spin_lock_irq(&kcs_bmc->lock);
+	unsigned long flags = 0;
+
+	kcs_bmc_device_lock(kcs_bmc, &flags);
+
 	if (client == kcs_bmc->client) {
 		u8 mask = KCS_BMC_EVENT_TYPE_IBF | KCS_BMC_EVENT_TYPE_OBE;
 
 		kcs_bmc_update_event_mask(kcs_bmc, mask, 0);
 		kcs_bmc->client = NULL;
 	}
-	spin_unlock_irq(&kcs_bmc->lock);
+
+	kcs_bmc_device_unlock(kcs_bmc, &flags);
 }
 EXPORT_SYMBOL(kcs_bmc_disable_device);
 
@@ -108,6 +133,7 @@ int kcs_bmc_add_device(struct kcs_bmc_device *kcs_bmc)
 	int rc;
 
 	spin_lock_init(&kcs_bmc->lock);
+	mutex_init(&kcs_bmc->mutex);
 	kcs_bmc->client = NULL;
 
 	mutex_lock(&kcs_bmc_lock);

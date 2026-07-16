@@ -34,7 +34,7 @@
 #include <linux/poll.h>
 #include <linux/regmap.h>
 #include <linux/sched.h>
-#include <linux/timer.h>
+#include <linux/workqueue.h>
 
 #include "kcs_bmc_device.h"
 
@@ -152,8 +152,9 @@ struct rts591x_kcs_bmc {
 
 	struct {
 		spinlock_t lock;
+		bool enabled;
 		bool remove;
-		struct timer_list timer;
+		struct delayed_work work;
 	} obe;
 };
 
@@ -203,26 +204,29 @@ static void rts591x_kcs_enable_channel(struct kcs_bmc_device *kcs_bmc,
 			   ACTSEL_MASK, enable * ACTSEL_MASK);
 }
 
-static void rts591x_kcs_check_obe(struct timer_list *timer)
+static void rts591x_kcs_check_obe(struct work_struct *work)
 {
-	struct rts591x_kcs_bmc *priv =
-		container_of(timer, struct rts591x_kcs_bmc, obe.timer);
+	struct rts591x_kcs_bmc *priv = container_of(
+		to_delayed_work(work), struct rts591x_kcs_bmc, obe.work);
 	unsigned long flags;
 	u8 str;
 
 	spin_lock_irqsave(&priv->obe.lock, flags);
-	if (priv->obe.remove) {
-		spin_unlock_irqrestore(&priv->obe.lock, flags);
-		return;
-	}
-
-	str = rts591x_kcs_inb(&priv->kcs_bmc, priv->kcs_bmc.ioreg.str);
-	if (str & KCS_BMC_STR_OBF) {
-		mod_timer(timer, jiffies + OBE_POLL_PERIOD);
+	if (!priv->obe.enabled || priv->obe.remove) {
 		spin_unlock_irqrestore(&priv->obe.lock, flags);
 		return;
 	}
 	spin_unlock_irqrestore(&priv->obe.lock, flags);
+
+	str = rts591x_kcs_inb(&priv->kcs_bmc, priv->kcs_bmc.ioreg.str);
+	if (str & KCS_BMC_STR_OBF) {
+		spin_lock_irqsave(&priv->obe.lock, flags);
+		if (priv->obe.enabled && !priv->obe.remove)
+			mod_delayed_work(system_wq, &priv->obe.work,
+					 OBE_POLL_PERIOD);
+		spin_unlock_irqrestore(&priv->obe.lock, flags);
+		return;
+	}
 
 	kcs_bmc_handle_event(&priv->kcs_bmc);
 }
@@ -231,23 +235,19 @@ static void rts591x_kcs_irq_mask_update(struct kcs_bmc_device *kcs_bmc, u8 mask,
 					u8 state)
 {
 	struct rts591x_kcs_bmc *priv = to_rts591x_kcs_bmc(kcs_bmc);
-	int rc;
-	u8 str;
+	unsigned long flags;
 
 	if (mask & KCS_BMC_EVENT_TYPE_OBE) {
-		if (KCS_BMC_EVENT_TYPE_OBE & state) {
-			rc = read_poll_timeout_atomic(rts591x_kcs_inb, str,
-						      !(str & KCS_BMC_STR_OBF),
-						      1, 100, false,
-						      &priv->kcs_bmc,
-						      priv->kcs_bmc.ioreg.str);
+		bool enable = state & KCS_BMC_EVENT_TYPE_OBE;
 
-			if (rc == -ETIMEDOUT)
-				mod_timer(&priv->obe.timer,
-					  jiffies + OBE_POLL_PERIOD);
-		} else {
-			del_timer(&priv->obe.timer);
-		}
+		spin_lock_irqsave(&priv->obe.lock, flags);
+		priv->obe.enabled = enable;
+		spin_unlock_irqrestore(&priv->obe.lock, flags);
+
+		if (enable)
+			mod_delayed_work(system_wq, &priv->obe.work, 0);
+		else
+			cancel_delayed_work(&priv->obe.work);
 	}
 
 	if (mask & KCS_BMC_EVENT_TYPE_IBF)
@@ -314,10 +314,12 @@ static int rts591x_kcs_probe(struct platform_device *pdev)
 	kcs_bmc->ioreg.odr = priv->base + KCS_OUTPUT_BUFFER_REGISTER;
 	kcs_bmc->ioreg.str = priv->base + KCS_STATUS_REGISTER;
 	kcs_bmc->ops = &rts591x_kcs_ops;
+	kcs_bmc->io_can_sleep = true;
 
 	spin_lock_init(&priv->obe.lock);
+	priv->obe.enabled = false;
 	priv->obe.remove = false;
-	timer_setup(&priv->obe.timer, rts591x_kcs_check_obe, 0);
+	INIT_DELAYED_WORK(&priv->obe.work, rts591x_kcs_check_obe);
 
 	if (!mfd_dev->irq_data) {
 		dev_err(dev, "parent MFD has no IRQ domain\n");
@@ -353,9 +355,10 @@ static int rts591x_kcs_probe(struct platform_device *pdev)
 			kcs_bmc,
 			KCS_BMC_EVENT_TYPE_IBF | KCS_BMC_EVENT_TYPE_OBE, 0);
 		spin_lock_irq(&priv->obe.lock);
+		priv->obe.enabled = false;
 		priv->obe.remove = true;
 		spin_unlock_irq(&priv->obe.lock);
-		del_timer_sync(&priv->obe.timer);
+		cancel_delayed_work_sync(&priv->obe.work);
 		return rc;
 	}
 
@@ -378,9 +381,10 @@ static int rts591x_kcs_remove(struct platform_device *pdev)
 
 	/* Make sure it's proper dead */
 	spin_lock_irq(&priv->obe.lock);
+	priv->obe.enabled = false;
 	priv->obe.remove = true;
 	spin_unlock_irq(&priv->obe.lock);
-	del_timer_sync(&priv->obe.timer);
+	cancel_delayed_work_sync(&priv->obe.work);
 
 	return 0;
 }

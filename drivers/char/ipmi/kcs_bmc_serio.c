@@ -19,6 +19,7 @@ struct kcs_bmc_serio {
 	struct serio *port;
 
 	spinlock_t lock;
+	struct mutex mutex;
 };
 
 static inline struct kcs_bmc_serio *client_to_kcs_bmc_serio(struct kcs_bmc_client *client)
@@ -29,19 +30,26 @@ static inline struct kcs_bmc_serio *client_to_kcs_bmc_serio(struct kcs_bmc_clien
 static irqreturn_t kcs_bmc_serio_event(struct kcs_bmc_client *client)
 {
 	struct kcs_bmc_serio *priv;
+	unsigned long flags;
 	u8 handled = IRQ_NONE;
 	u8 status;
 
 	priv = client_to_kcs_bmc_serio(client);
 
-	spin_lock(&priv->lock);
+	if (client->dev->io_can_sleep)
+		mutex_lock(&priv->mutex);
+	else
+		spin_lock_irqsave(&priv->lock, flags);
 
 	status = kcs_bmc_read_status(client->dev);
 
 	if (status & KCS_BMC_STR_IBF)
 		handled = serio_interrupt(priv->port, kcs_bmc_read_data(client->dev), 0);
 
-	spin_unlock(&priv->lock);
+	if (client->dev->io_can_sleep)
+		mutex_unlock(&priv->mutex);
+	else
+		spin_unlock_irqrestore(&priv->lock, flags);
 
 	return handled;
 }
@@ -88,6 +96,7 @@ static int kcs_bmc_serio_add_device(struct kcs_bmc_device *kcs_bmc)
 	port->dev.parent = kcs_bmc->dev;
 
 	spin_lock_init(&priv->lock);
+	mutex_init(&priv->mutex);
 	priv->port = port;
 	priv->client.dev = kcs_bmc;
 	priv->client.ops = &kcs_bmc_serio_client_ops;
