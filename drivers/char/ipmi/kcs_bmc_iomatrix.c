@@ -26,7 +26,6 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
-#include <linux/mfd/iomatrix.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -96,10 +95,10 @@
 
 #define KCS_ADDRESS_REGISTER 0x0C
 
-#define ADDR_RESERVED_MASK GENMASK(31, 15)
+#define ADDR_RESERVED_MASK (GENMASK(31, 19) | GENMASK(15, 12))
 
-#define CMDOFS_MASK   GENMASK(14, 12)
-#define CMDOFS_OFFSET 12
+#define CMDOFS_MASK   GENMASK(18, 16)
+#define CMDOFS_OFFSET 16
 
 #define DATAADDR_MASK	GENMASK(11, 0)
 #define DATAADDR_OFFSET 0
@@ -204,6 +203,54 @@ static void rts591x_kcs_enable_channel(struct kcs_bmc_device *kcs_bmc,
 			   ACTSEL_MASK, enable * ACTSEL_MASK);
 }
 
+/*
+ * Program the host-side (LPC/eSPI) I/O address the channel decodes to.
+ * The hardware exposes a single data-port address (DATAADDR) plus the
+ * command/status port offset relative to it (CMDOFS = cmd - data).
+ */
+static int rts591x_kcs_set_address(struct kcs_bmc_device *kcs_bmc, u32 addrs[2],
+				   int nr_addrs)
+{
+	struct rts591x_kcs_bmc *priv = to_rts591x_kcs_bmc(kcs_bmc);
+	u32 cmdofs = 1;
+
+	if (nr_addrs == 2) {
+		if (addrs[1] <= addrs[0] ||
+		    addrs[1] - addrs[0] > (CMDOFS_MASK >> CMDOFS_OFFSET)) {
+			dev_err(kcs_bmc->dev,
+				"Invalid command port offset in 'realtek,lpc-io-reg'\n");
+			return -EINVAL;
+		}
+		cmdofs = addrs[1] - addrs[0];
+	}
+
+	regmap_update_bits(priv->regmap, priv->base + KCS_ADDRESS_REGISTER,
+			   CMDOFS_MASK | DATAADDR_MASK,
+			   (cmdofs << CMDOFS_OFFSET) |
+				   (addrs[0] << DATAADDR_OFFSET));
+
+	return 0;
+}
+
+static int rts591x_kcs_of_get_io_address(struct device *dev, u32 addrs[2])
+{
+	int rc;
+
+	rc = of_property_read_variable_u32_array(
+		dev->of_node, "realtek,lpc-io-reg", addrs, 1, 2);
+	if (rc < 0) {
+		dev_err(dev, "No valid 'realtek,lpc-io-reg' configured\n");
+		return rc;
+	}
+
+	if (addrs[0] > DATAADDR_MASK) {
+		dev_err(dev, "Invalid data address in 'realtek,lpc-io-reg'\n");
+		return -EINVAL;
+	}
+
+	return rc;
+}
+
 static void rts591x_kcs_check_obe(struct work_struct *work)
 {
 	struct rts591x_kcs_bmc *priv = container_of(
@@ -276,16 +323,10 @@ static int rts591x_kcs_probe(struct platform_device *pdev)
 {
 	struct kcs_bmc_device *kcs_bmc;
 	struct rts591x_kcs_bmc *priv;
-	struct rts591x_mfd_dev *mfd_dev;
 	struct device *dev = &pdev->dev;
 	struct device *parent = dev->parent;
-	int rc, irq;
-
-	mfd_dev = dev_get_drvdata(parent);
-	if (!mfd_dev) {
-		dev_err(dev, "cannot get parent MFD device data\n");
-		return -ENODEV;
-	}
+	int rc, irq, nr_addrs;
+	u32 addrs[2];
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -307,6 +348,10 @@ static int rts591x_kcs_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+	nr_addrs = rts591x_kcs_of_get_io_address(dev, addrs);
+	if (nr_addrs < 0)
+		return nr_addrs;
+
 	kcs_bmc = &priv->kcs_bmc;
 	kcs_bmc->dev = &pdev->dev;
 	kcs_bmc->channel = priv->chan;
@@ -321,12 +366,7 @@ static int rts591x_kcs_probe(struct platform_device *pdev)
 	priv->obe.remove = false;
 	INIT_DELAYED_WORK(&priv->obe.work, rts591x_kcs_check_obe);
 
-	if (!mfd_dev->irq_data) {
-		dev_err(dev, "parent MFD has no IRQ domain\n");
-		return -ENODEV;
-	}
-
-	irq = regmap_irq_get_virq(mfd_dev->irq_data, RTS591X_KCS_IBF_INT);
+	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		dev_err(dev, "Failed to get IRQ: %d\n", irq);
 		return irq;
@@ -344,12 +384,18 @@ static int rts591x_kcs_probe(struct platform_device *pdev)
 
 	rts591x_kcs_irq_mask_update(
 		kcs_bmc, (KCS_BMC_EVENT_TYPE_IBF | KCS_BMC_EVENT_TYPE_OBE), 0);
+
+	rc = rts591x_kcs_set_address(kcs_bmc, addrs, nr_addrs);
+	if (rc)
+		return rc;
+
 	rts591x_kcs_enable_channel(kcs_bmc, true);
 
 	rc = kcs_bmc_add_device(&priv->kcs_bmc);
 	if (rc) {
 		dev_err(dev, "Failed to register channel %d: %d\n",
 			kcs_bmc->channel, rc);
+		kcs_bmc_remove_device(kcs_bmc);
 		rts591x_kcs_enable_channel(kcs_bmc, false);
 		rts591x_kcs_irq_mask_update(
 			kcs_bmc,

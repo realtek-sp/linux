@@ -72,17 +72,10 @@ static int rts591x_i2c_request_regs(struct dw_i2c_dev *dev)
 	int ret;
 	struct rts591x_mfd_dev *mfd_dev;
 	struct regmap *alias_map;
-	int i2c_id;
 
 	ret = of_property_read_u32(dev->dev->of_node, "reg", &dev->base_addr);
 	if (ret) {
 		dev_err(dev->dev, "Failed to get base addr\n");
-		return ret;
-	}
-
-	ret = of_property_read_u32(dev->dev->of_node, "id", &i2c_id);
-	if (ret || i2c_id < 0) {
-		dev_err(dev->dev, "Failed to get i2c_id\n");
 		return ret;
 	}
 
@@ -105,8 +98,7 @@ static int rts591x_i2c_request_regs(struct dw_i2c_dev *dev)
 	}
 	dev->map = alias_map;
 
-	dev->irq = regmap_irq_get_virq(mfd_dev->irq_data,
-				       RTS591X_I2C0_INT + i2c_id);
+	dev->irq = platform_get_irq(to_platform_device(dev->dev), 0);
 	if (dev->irq < 0) {
 		dev_err(dev->dev, "Failed to get IRQ %d\n", dev->irq);
 		return dev->irq;

@@ -1,4 +1,5 @@
 #include "rts4930a.dtsi"
+#include <dt-bindings/interrupt-controller/realtek,rts591x-iomatrix.h>
 
 / {
 	model = "RTS493xA EVB";
@@ -103,6 +104,8 @@
 		reg = <0x30>;
 
 		mfd-gpios = <&pinctrl 60 GPIO_ACTIVE_LOW>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
 
 		iomatrix-uapi {
 			compatible = "realtek,iomatrix-uapi";
@@ -110,13 +113,13 @@
 
 		peci {
 			compatible = "realtek,rts591x-peci";
-			reg = <0x400a0000>;
+			reg = <0x40221900>;
 			status = "okay";
 		};
 
 		gpio {
 			compatible = "realtek,rts591x-gpio";
-			reg = <0x40090000>;
+			reg = <0x40230000>;
 			gpio-line-names =
 			"ESCM_GPIO000", "ESCM_GPIO001", "ESCM_GPIO002", "ESCM_GPIO003",
 			"ESCM_GPIO004", "ESCM_GPIO005", "ESCM_GPIO006", "ESCM_GPIO007",
@@ -154,17 +157,19 @@
 			status = "okay";
 		};
 
-		rts591x-i2c0 {
+		rts591x-i2c10 {
 			compatible = "realtek,rts591x-i2c";
-			reg = <0x4000d000>;
-			id = <0>;
+			reg = <0x40251200>;
+			id = <10>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_I2C10>;
 			status = "okay";
 		};
 
-		rts591x-i2c1 {
+		rts591x-i2c11 {
 			compatible = "realtek,rts591x-i2c";
-			reg = <0x4000d200>;
-			id = <1>;
+			reg = <0x40251400>;
+			id = <11>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_I2C11>;
 			status = "okay";
 
 			eeprom@64 {
@@ -173,26 +178,33 @@
 			};
 		};
 
-		rts591x-i2c3 {
+		rts591x-i2c2 {
 			compatible = "realtek,rts591x-i2c";
-			reg = <0x4000d600>;
-			id = <3>;
+			reg = <0x40250200>;
+			id = <2>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_I2C2>;
 			status = "okay";
 		};
 
-		rts591x-i2c4 {
+		rts591x-i2c6 {
 			compatible = "realtek,rts591x-i2c";
-			reg = <0x4000d800>;
-			id = <4>;
+			reg = <0x40250A00>;
+			id = <6>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_I2C6>;
 			status = "okay";
+
+			eeprom@64 {
+				compatible = "slave-24c02";
+				reg = <0x40000064>;
+			};
 		};
 
 		rts_adc: rts591x-adc {
 			compatible = "realtek,rts591x-adc";
-			reg = <0x4000FE00>;
+			reg = <0x40251900>;
 			linear-Calibration;
 			mode = "repeat";
-			status = "okay";
+			status = "disabled";
 			#io-channel-cells = <1>;
 
 			channel@0{
@@ -238,13 +250,13 @@
 
 		rts591x_pwm: rts591x_pwm_tacho {
 			compatible = "realtek,rts591x-pwm-tacho";
-			reg = <0x4000f000>;
+			reg = <0x40254500>;
 			clock-source= <0>; /*clock source selection*/
-			status = "okay";
+			status = "disabled";
 			#pwm-cells = <3>;
 
 			fans {
-				reg = <0x4000fd00>;
+				reg = <0x40251f00>;
 				edge-selection = <0>;
 				// cnt-ready-interrupt-en;
 				rts591x-fan@0 {
@@ -271,8 +283,10 @@
 
 		rts591x-kcs-bmc {
 			compatible = "realtek,rts591x-kcs-bmc";
-			reg = <0x400A021C>;
+			reg = <0x40221700>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_KCS_IBF>;
 			kcs_chan = <1>;
+			realtek,lpc-io-reg = <0xCA2 0xCA3>;
 		};
 	};
 
