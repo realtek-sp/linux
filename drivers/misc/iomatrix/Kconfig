@@ -26,4 +26,12 @@ config UAPI_IOMATRIX
 	help
 	  If you say Y here you get support for IOMatrix UAPI.
 
+config RTS591X_ESPI_SNOOP
+	tristate "Realtek RTS591x eSPI snoop support"
+	depends on MFD_RTS591X_I2C
+	default MFD_RTS591X_I2C
+	help
+	  If you say Y here you get support for RTS591x eSPI snoop
+	  devices, typically used to expose host Port 80/81 POST codes.
+
 endmenu

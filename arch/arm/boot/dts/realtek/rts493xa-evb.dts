@@ -288,6 +288,14 @@
 			kcs_chan = <1>;
 			realtek,lpc-io-reg = <0xCA2 0xCA3>;
 		};
+
+		rts591x-espi-snoop@40221200 {
+			compatible = "realtek,rts591x-espi-snoop";
+			reg = <0x40221200>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_PORT80>;
+			snoop-channel = <0>;
+		};
+
 	};
 
 	rts490xa-hub@70 {

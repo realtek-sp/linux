@@ -89,8 +89,12 @@ static const struct mfd_cell rts591x_mfd_cells[] = {
 		.name = "rts591x-kcs-bmc",
 		.of_compatible = "realtek,rts591x-kcs-bmc",
 	},
+	{
+		.name = "rts591x-espi-snoop",
+		.of_compatible = "realtek,rts591x-espi-snoop",
+		.id = 0,
+	},
 };
-
 static const struct mfd_cell rts591x_mfd_cells_hpm[] = {
 	{
 		.name = "iomatrix-uapi",
@@ -257,11 +261,11 @@ static const struct of_device_id rts591x_mfd_i2c_of_match[] = {
 MODULE_DEVICE_TABLE(of, rts591x_mfd_i2c_of_match);
 
 static struct i2c_driver rts591x_mfd_driver = {
-    .driver = {
-        .name = "rts591x-mfd",
-        .of_match_table = rts591x_mfd_i2c_of_match,
-    },
-    .probe = rts591x_mfd_probe,
+	.driver = {
+		.name = "rts591x-mfd",
+		.of_match_table = rts591x_mfd_i2c_of_match,
+	},
+	.probe = rts591x_mfd_probe,
 };
 
 module_i2c_driver(rts591x_mfd_driver);
