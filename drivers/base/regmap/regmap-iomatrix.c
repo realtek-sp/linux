@@ -47,10 +47,15 @@
 #define CMD_READ_MEM   (0x04) /* single 32-bit read */
 #define CMD_WRITE_MEMS (0x05) /* block write (multi-frame) */
 #define CMD_ERASE_FSPI (0x09) /* FSPI erase */
+#define CMD_PECI_OOB   (0x0A) /* PECI over eSPI OOB transaction */
 
 #define DELAY_US_RDWR_MEM   (50)
 #define DELAY_US_WR_MEMS    (200)
 #define DELAY_US_ERASE_FSPI (4000)
+
+#define PECI_OOB_INIT_DELAY_MS (6)
+#define PECI_OOB_TIMEOUT_US    (60000)
+#define PECI_OOB_POLL_US       (500)
 
 /* Response codes (from device) */
 #define RSP_ACK		    (0x00)
@@ -101,7 +106,7 @@ static int iomatrix_send_and_recv(void *context, u32 delay_us, const u8 *req,
 		return ret;
 	}
 	if (ret != req_len) {
-		dev_err(dev, "I2C short write: wrote %d, expected %zu\n", ret,
+		dev_err(dev, "I2C short write: wrote %d, expected %u\n", ret,
 			req_len);
 		return -EIO;
 	}
@@ -438,6 +443,156 @@ int iomatrix_regmap_fspi_erase_protected(struct regmap *map, u32 erase_addr,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(iomatrix_regmap_fspi_erase_protected);
+
+/*
+ * PECI OOB transaction.
+ *
+ * Sends a PECI command to the EC via the I2C slave protocol (CMD_PECI_OOB)
+ * and reads the response.  The EC processes it over eSPI OOB.
+ *
+ * iomatrix_regmap_peci_oob() holds the regmap lock across this call to
+ * prevent other I2C transactions from corrupting the EC's TX FIFO during
+ * the ~60ms wait.
+ *
+ * Request payload:
+ *   [0]        PECI client address
+ *   [1]        Write length (WrLen)
+ *   [2]        Read length  (RdLen)
+ *   [3..]      Write data (WrLen bytes)
+ *
+ * Response payload (on success):
+ *   [0]        PECI Completion Code
+ *   [1..]      Read data (RdLen bytes)
+ */
+static int iomatrix_peci_oob_exec(void *context, const u8 *req_buf, u32 req_len,
+				  u8 *rsp_buf, u32 *rsp_len)
+{
+	struct device *dev = context;
+	struct i2c_client *i2c = to_i2c_client(dev);
+	int ret, tries;
+	u8 tx_buf[HEAD_BYTES + PAYLOAD_MAX_BY_PROTO];
+	u8 rsp_head[HEAD_BYTES];
+	u8 rsp_type;
+	u32 payload_len;
+
+	if (req_len > PAYLOAD_MAX_BY_PROTO) {
+		dev_err(dev, "PECI OOB payload too long: %u\n", req_len);
+		return -EINVAL;
+	}
+
+	tx_buf[0] = CMD_PECI_OOB;
+	tx_buf[1] = 0x00;
+	tx_buf[2] = req_len & 0x3F;
+	memcpy(tx_buf + HEAD_BYTES, req_buf, req_len);
+
+	/* Send request */
+	ret = i2c_master_send(i2c, tx_buf, HEAD_BYTES + req_len);
+	if (ret < 0) {
+		dev_err(dev, "PECI OOB I2C send failed: %d\n", ret);
+		return ret;
+	}
+	if (ret != HEAD_BYTES + req_len) {
+		dev_err(dev, "PECI OOB I2C short write: %d\n", ret);
+		return -EIO;
+	}
+
+	/* Give the EC a short head start, then poll for the response header. */
+	mdelay(PECI_OOB_INIT_DELAY_MS);
+
+	for (tries = 0; tries < PECI_OOB_TIMEOUT_US / PECI_OOB_POLL_US;
+	     tries++) {
+		ret = i2c_master_recv(i2c, rsp_head, 1);
+		if (ret < 0) {
+			dev_err(dev, "PECI OOB I2C recv cmd failed: %d\n", ret);
+			return ret;
+		}
+		if (ret != 1) {
+			dev_err(dev, "PECI OOB short cmd read: %d\n", ret);
+			return -EIO;
+		}
+
+		if (rsp_head[0] == CMD_PECI_OOB)
+			break;
+
+		if (rsp_head[0] == RSP_CMD_RETRY_TOKEN) {
+			udelay(PECI_OOB_POLL_US);
+			continue;
+		}
+
+		dev_err(dev, "PECI OOB unexpected cmd echo: 0x%02x\n",
+			rsp_head[0]);
+		return -EPROTO;
+	}
+
+	if (tries == PECI_OOB_TIMEOUT_US / PECI_OOB_POLL_US) {
+		dev_err(dev, "PECI OOB timeout waiting for response\n");
+		return -ETIMEDOUT;
+	}
+
+	/* Read remaining response header bytes. */
+	ret = i2c_master_recv(i2c, rsp_head + 1, HEAD_BYTES - 1);
+	if (ret < 0) {
+		dev_err(dev, "PECI OOB I2C recv header failed: %d\n", ret);
+		return ret;
+	}
+	if (ret != HEAD_BYTES - 1) {
+		dev_err(dev, "PECI OOB short header: %d\n", ret);
+		return -EIO;
+	}
+
+	rsp_type = rsp_head[1];
+	payload_len = rsp_head[2] & 0x3F;
+
+	if (rsp_type == RSP_ACK) {
+		*rsp_len = 0;
+		return 0;
+	}
+
+	if (payload_len > *rsp_len)
+		payload_len = *rsp_len;
+
+	if (rsp_type == RSP_DAT || rsp_type == RSP_ERR) {
+		u8 rsp_payload[64];
+		u32 read_len;
+
+		read_len = min_t(u32, payload_len, sizeof(rsp_payload));
+		ret = i2c_master_recv(i2c, rsp_payload, read_len);
+		if (ret < 0)
+			return ret;
+		if (ret != (int)read_len) {
+			dev_err(dev, "PECI OOB short payload: %d\n", ret);
+			return -EIO;
+		}
+		memcpy(rsp_buf, rsp_payload, read_len);
+		*rsp_len = read_len;
+
+		if (rsp_type == RSP_DAT)
+			return 0;
+
+		dev_err(dev, "PECI OOB device error\n");
+		return -EPROTO;
+	}
+
+	dev_err(dev, "PECI OOB unexpected rsp_type: 0x%02x\n", rsp_type);
+	return -EPROTO;
+}
+
+int iomatrix_regmap_peci_oob(struct regmap *map, const u8 *cmd_buf, u32 cmd_len,
+			     u8 *resp_buf, u32 *resp_len)
+{
+	int ret;
+
+	if (!map || !cmd_buf || !resp_buf || !resp_len)
+		return -EINVAL;
+
+	map->lock(map->lock_arg);
+	ret = iomatrix_peci_oob_exec(map->bus_context, cmd_buf, cmd_len,
+				     resp_buf, resp_len);
+	map->unlock(map->lock_arg);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(iomatrix_regmap_peci_oob);
 
 static int regmap_i2c_write(void *context, u32 reg, u32 val)
 {

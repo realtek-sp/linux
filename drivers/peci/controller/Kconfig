@@ -39,3 +39,11 @@ config PECI_IOMATRIX
 	help
 	  This enables support for IOMATRIX PECI. Say Y here to use IOMATRIX PECI driver to
 	  configure IOMATRIX PECI device.
+
+config PECI_RTS591X_OOB
+	tristate "RTS591x PECI over eSPI OOB support"
+	depends on MFD_RTS591X_I2C
+	help
+	  This enables support for PECI over eSPI OOB controller on RTS591x.
+	  The driver sends PECI commands to the EC via I2C (CMD_PECI_OOB),
+	  which forwards them over the eSPI OOB channel to the host (PCH).

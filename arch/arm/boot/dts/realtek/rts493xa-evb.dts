@@ -114,6 +114,11 @@
 		peci {
 			compatible = "realtek,rts591x-peci";
 			reg = <0x40221900>;
+			status = "disabled";
+		};
+
+		rts591x-peci-oob {
+			compatible = "realtek,rts591x-peci-oob";
 			status = "okay";
 		};
 

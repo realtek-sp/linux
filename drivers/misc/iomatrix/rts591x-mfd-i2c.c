@@ -55,6 +55,10 @@ static const struct mfd_cell rts591x_mfd_cells[] = {
 		.of_compatible = "realtek,rts591x-peci",
 	},
 	{
+		.name = "rts591x-peci-oob",
+		.of_compatible = "realtek,rts591x-peci-oob",
+	},
+	{
 		.name = "rts591x-gpio",
 		.of_compatible = "realtek,rts591x-gpio",
 		.platform_data = &rts591x_model_pdata,

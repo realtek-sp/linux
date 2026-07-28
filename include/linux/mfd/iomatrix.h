@@ -101,5 +101,7 @@ int iomatrix_regmap_block_write_protected(struct regmap *map,
 int iomatrix_regmap_fspi_erase_protected(struct regmap *map, u32 erase_addr,
 					 u8 erase_type);
 
+int iomatrix_regmap_peci_oob(struct regmap *map, const u8 *cmd_buf, u32 cmd_len,
+			     u8 *resp_buf, u32 *resp_len);
 
 #endif /* __IOMATRIX_H */
