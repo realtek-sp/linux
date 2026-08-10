@@ -46,6 +46,7 @@
 			pwms = <&rts591x_pwm 1 40960 0>;
 			pulses-per-revolution = <2>;
 		};
+
 };
 
 &spi0 {
@@ -127,9 +128,16 @@
 			status = "okay";
 		};
 
-		gpio {
+		rts591x_gpio: gpio {
 			compatible = "realtek,rts591x-gpio";
 			reg = <0x40230000>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_GPIO21>,
+				     <RTS591X_IOMATRIX_IRQ_GPIO41>,
+				     <RTS591X_IOMATRIX_IRQ_GPIO42>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
 			gpio-line-names =
 			"ESCM_GPIO000", "ESCM_GPIO001", "ESCM_GPIO002", "ESCM_GPIO003",
 			"ESCM_GPIO004", "ESCM_GPIO005", "ESCM_GPIO006", "ESCM_GPIO007",

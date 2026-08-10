@@ -144,7 +144,13 @@
 		gpio_scm: gpio {
 			compatible = "realtek,rts591x-gpio";
 			reg = <0x40230000>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_GPIO21>,
+				     <RTS591X_IOMATRIX_IRQ_GPIO41>,
+				     <RTS591X_IOMATRIX_IRQ_GPIO42>;
+			gpio-controller;
 			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
 
 			gpio-line-names =
 			"ESCM_GPIO000", "ESCM_GPIO001", "ESCM_GPIO002", "ESCM_GPIO003",
