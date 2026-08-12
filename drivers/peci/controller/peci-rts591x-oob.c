@@ -75,6 +75,14 @@ static int rts591x_peci_oob_xfer(struct peci_controller *controller, u8 addr,
 				       &resp_len);
 	if (ret) {
 		dev_dbg(priv->dev, "OOB transaction failed: %d\n", ret);
+		/*
+		 * EC returns RSP_ERR (-EPROTO) when the target PECI address is
+		 * unpopulated.  Map to -EIO so peci_device_create() treats it
+		 * as "no device at this address" and continues scanning rather
+		 * than aborting the entire rescan.
+		 */
+		if (ret == -EPROTO)
+			ret = -EIO;
 		goto out;
 	}
 
