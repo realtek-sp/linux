@@ -183,6 +183,14 @@
 			};
 		};
 
+		rts591x-i2c1 {
+			compatible = "realtek,rts591x-i2c";
+			reg = <0x40250000>;
+			id = <1>;
+			interrupts = <RTS591X_IOMATRIX_IRQ_I2C1>;
+			status = "okay";
+		};
+
 		rts591x-i2c2 {
 			compatible = "realtek,rts591x-i2c";
 			reg = <0x40250200>;
@@ -294,13 +302,12 @@
 			realtek,lpc-io-reg = <0xCA2 0xCA3>;
 		};
 
-		rts591x-espi-snoop@40221200 {
+		rts591x-espi-snoop {
 			compatible = "realtek,rts591x-espi-snoop";
 			reg = <0x40221200>;
 			interrupts = <RTS591X_IOMATRIX_IRQ_PORT80>;
 			snoop-channel = <0>;
 		};
-
 	};
 
 	rts490xa-hub@70 {
