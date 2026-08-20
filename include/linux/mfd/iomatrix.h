@@ -91,12 +91,28 @@ struct rts591x_mfd_dev {
 	enum rts591x_model model;
 };
 
-int iomatrix_regmap_block_write_protected(struct regmap *map,
-					  unsigned int base_reg,
-					  const void *buf, size_t len);
+/*
+ * SPIC write packetization sequence, carried in the request attr byte bit[7:6].
+ * A sector is streamed as FIRST -> CONT x n -> LAST, or SINGLE when it fits in
+ * one frame.  Every frame is acknowledged; FIRST resets the EC sector buffer,
+ * CONT appends, and LAST/SINGLE finalize the sector (compare + erase + program)
+ * and return the final ACK/ERROR.
+ */
+enum iomatrix_spic_seq {
+	IOMATRIX_SPIC_SEQ_SINGLE = 0,
+	IOMATRIX_SPIC_SEQ_FIRST = 1,
+	IOMATRIX_SPIC_SEQ_CONT = 2,
+	IOMATRIX_SPIC_SEQ_LAST = 3,
+};
 
-int iomatrix_regmap_fspi_erase_protected(struct regmap *map, u32 erase_addr,
-					 u8 erase_type);
+int iomatrix_regmap_update_lock(struct regmap *map);
+void iomatrix_regmap_update_unlock(struct regmap *map);
+int iomatrix_regmap_spic_erase(struct regmap *map, u32 addr);
+int iomatrix_regmap_spic_write(struct regmap *map, u32 addr, const u8 *buf,
+			       u32 len, u8 seq);
+int iomatrix_regmap_spic_read(struct regmap *map, u32 addr, u8 *buf, u32 len);
+int iomatrix_regmap_spic_update(struct regmap *map);
+int iomatrix_regmap_spic_reboot(struct regmap *map);
 
 int iomatrix_regmap_peci_oob(struct regmap *map, const u8 *cmd_buf, u32 cmd_len,
 			     u8 *resp_buf, u32 *resp_len);

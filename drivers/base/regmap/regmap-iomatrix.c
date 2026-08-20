@@ -23,6 +23,7 @@
 
 #include <linux/regmap.h>
 #include <linux/i2c.h>
+#include <linux/mfd/iomatrix.h>
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
@@ -35,23 +36,38 @@
 #define VAL_BYTES  (4)
 #define LEN_BYTES  (4)
 
-#define ERASE_TYPE_BYTES (1)
-#define ERASE_PAYLOAD_B	 (REG_BYTES + ERASE_TYPE_BYTES)
+#define ERASE_PAYLOAD_B (REG_BYTES)
 
-/* Protocol: 1-byte cmd + 1-byte resp_type + 2-bit seq + 6-bit payload_len */
+/*
+ * Protocol: 1-byte cmd + 1-byte resp_type + 1-byte payload_len (0..255).
+ * payload_len occupies the whole attr byte (seq framing is currently unused).
+ * PAYLOAD_MAX_BY_PROTO bounds response payloads; a request write frame may carry
+ * up to SPIC_REQ_MAX_PAYLOAD bytes (4-byte address + 128-byte data).
+ */
 #define PAYLOAD_MAX_BY_PROTO (0x3F)
-#define CHUNK_BYTES	     (PAYLOAD_MAX_BY_PROTO - REG_BYTES - LEN_BYTES)
+#define SPIC_WRITE_MAX_BYTES (128)
+#define SPIC_REQ_MAX_PAYLOAD (REG_BYTES + SPIC_WRITE_MAX_BYTES)
 
 /* Command definitions */
-#define CMD_WRITE_MEM  (0x03) /* single 32-bit write */
-#define CMD_READ_MEM   (0x04) /* single 32-bit read */
-#define CMD_WRITE_MEMS (0x05) /* block write (multi-frame) */
-#define CMD_ERASE_FSPI (0x09) /* FSPI erase */
-#define CMD_PECI_OOB   (0x0A) /* PECI over eSPI OOB transaction */
+#define CMD_WRITE_MEM	(0x03) /* single 32-bit write */
+#define CMD_READ_MEM	(0x04) /* single 32-bit read */
+#define CMD_PECI_OOB	(0x0A) /* PECI over eSPI OOB transaction */
+#define CMD_WRITE_SPIC	(0x0B) /* SPI flash write (fill EC sector buffer) */
+#define CMD_READ_SPIC	(0x0C) /* SPI flash read (reserved) */
+#define CMD_UPDATE_SPIC (0x0D) /* commit EC sector buffer */
+#define CMD_ERASE_SPIC	(0x0E) /* SPI flash sector erase (reserved) */
+#define CMD_REBOOT_EC	(0x0F) /* reboot EC after update (no response) */
 
-#define DELAY_US_RDWR_MEM   (50)
-#define DELAY_US_WR_MEMS    (200)
-#define DELAY_US_ERASE_FSPI (4000)
+#define DELAY_US_RDWR_MEM (50)
+#define SPIC_POLL_US	  (1000)
+#define SPIC_TIMEOUT_US	  (2000000)
+
+/* EC reboot: settle past the WDT reset, then poll the slave address until it
+ * acknowledges again (the EC is running the new image).
+ */
+#define REBOOT_SETTLE_MS (1500)
+#define REBOOT_PROBE_MS	 (20)
+#define REBOOT_ONLINE_MS (5000)
 
 #define PECI_OOB_INIT_DELAY_MS (6)
 #define PECI_OOB_TIMEOUT_US    (60000)
@@ -63,12 +79,6 @@
 #define RSP_DAT		    (0x02)
 #define RSP_CMD_RETRY_TOKEN (0xFF)
 #define RSP_CMD_RETRY_MAX   (100)
-
-enum iomatrix_fspi_erase_type {
-	IOMATRIX_ERASE_4K = 0,
-	IOMATRIX_ERASE_32K = 1,
-	IOMATRIX_ERASE_64K = 2,
-};
 
 /*
  * Generic I2C send + response receive helper.
@@ -225,7 +235,7 @@ static int iomatrix_bus_xfer(u8 cmd, void *context, u32 reg, u32 w_val,
 	req_buf[1] = 0; /* request rsp_type field (unused for request) */
 	payload_len = (CMD_WRITE_MEM == cmd) ? (REG_BYTES + VAL_BYTES) :
 					       REG_BYTES;
-	req_buf[2] = (0x00 << 6) | (u8)payload_len;
+	req_buf[2] = (u8)payload_len;
 
 	put_unaligned_le32(reg, &req_buf[HEAD_BYTES]);
 	if (cmd == CMD_WRITE_MEM)
@@ -259,190 +269,326 @@ static int iomatrix_bus_xfer(u8 cmd, void *context, u32 reg, u32 w_val,
 	return -EPROTO;
 }
 
-/*
- * Block write helper: split len into frames.
- * Each frame (write): head(3) + reg_addr(4) + data_len(4) + data(chunk)
- * After writing a frame, read 3-byte response header and check ACK/ERR.
- *
- * Notes:
- * - Recompute 'chunk', 'payload_len' and 'msg_len' per frame to handle the
- *   tail frame correctly.
- * - 'seq' is encoded into the header high 2 bits (modulo 4) if the protocol
- *   requires frame sequencing.
- */
-static int iomatrix_block_write(void *context, u32 reg_addr, const u8 *buf,
-				u32 len, bool addr_autoinc)
+static int iomatrix_spic_recv(void *context, u8 expected_cmd, u8 *rsp_type,
+			      u8 *rsp_buf, u32 *rsp_len)
 {
 	struct device *dev = context;
-	u8 seq = 0;
+	struct i2c_client *i2c = to_i2c_client(dev);
+	unsigned long timeout = jiffies + usecs_to_jiffies(SPIC_TIMEOUT_US);
+	u8 rsp_head[HEAD_BYTES];
+	u32 payload_len;
 	int ret;
-	u32 proto_max_data, chunk_max;
 
-	if (!buf || len == 0)
-		return -EINVAL;
+	do {
+		ret = i2c_master_recv(i2c, rsp_head, 1);
+		if (ret < 0)
+			return ret;
+		if (ret != 1)
+			return -EIO;
+		if (rsp_head[0] == expected_cmd)
+			break;
+		if (rsp_head[0] != RSP_CMD_RETRY_TOKEN) {
+			dev_err(dev, "SPIC unexpected cmd echo: 0x%02x\n",
+				rsp_head[0]);
+			return -EPROTO;
+		}
+		udelay(DELAY_US_RDWR_MEM);
+	} while (!time_after(jiffies, timeout));
 
-	/* Max data area per frame based on protocol and adapter limits */
-	proto_max_data = PAYLOAD_MAX_BY_PROTO - REG_BYTES - LEN_BYTES;
-	chunk_max = min_t(u32, CHUNK_BYTES, proto_max_data);
+	if (rsp_head[0] != expected_cmd)
+		return -ETIMEDOUT;
 
-	if (chunk_max == 0) {
-		dev_err(dev, "No writable data per frame due to limits\n");
+	ret = i2c_master_recv(i2c, rsp_head + 1, HEAD_BYTES - 1);
+	if (ret < 0)
+		return ret;
+	if (ret != HEAD_BYTES - 1)
+		return -EIO;
+
+	*rsp_type = rsp_head[1];
+	payload_len = rsp_head[2] & PAYLOAD_MAX_BY_PROTO;
+	if (payload_len > *rsp_len) {
+		u8 discard[PAYLOAD_MAX_BY_PROTO];
+
+		ret = i2c_master_recv(i2c, discard, payload_len);
+		if (ret < 0)
+			return ret;
+		if (ret != payload_len)
+			return -EIO;
 		return -EMSGSIZE;
 	}
 
-	while (len) {
-		/* Compute per-frame sizes */
-		u32 chunk = min_t(u32, len, chunk_max);
-		u32 payload_len = REG_BYTES + LEN_BYTES + chunk;
-		u32 msg_len = HEAD_BYTES + payload_len;
-		u8 req_buf[HEAD_BYTES + REG_BYTES + LEN_BYTES + CHUNK_BYTES];
-		u8 rsp_type;
-		u32 payload = 0;
-
-		/* Header: cmd + resp_type + [seq|payload_len] */
-		req_buf[0] = CMD_WRITE_MEMS;
-		req_buf[1] = 0x00;
-		req_buf[2] = ((seq & 0x3) << 6) | (u8)payload_len;
-
-		/* Payload: reg_addr(LE) + data_len(LE) + data(chunk) */
-		put_unaligned_le32(reg_addr, &req_buf[HEAD_BYTES]);
-		put_unaligned_le32(chunk, &req_buf[HEAD_BYTES + REG_BYTES]);
-		memcpy(&req_buf[HEAD_BYTES + REG_BYTES + LEN_BYTES], buf,
-		       chunk);
-
-		/* Send frame and receive response */
-		ret = iomatrix_send_and_recv(context, DELAY_US_WR_MEMS, req_buf,
-					     msg_len, CMD_WRITE_MEMS, &rsp_type,
-					     &payload);
+	if (payload_len) {
+		ret = i2c_master_recv(i2c, rsp_buf, payload_len);
 		if (ret < 0)
 			return ret;
-
-		/* Validate response */
-		if (rsp_type == RSP_ACK) {
-			/* OK */
-		} else if (rsp_type == RSP_ERR) {
-			dev_err(dev,
-				"Block write failed: err 0x%08x, reg 0x%08x\n",
-				payload, reg_addr);
-			return -EPROTO;
-		} else {
-			dev_err(dev, "Unexpected rsp_type for write: 0x%02x\n",
-				rsp_type);
-			return -EPROTO;
-		}
-
-		/* Advance to next frame */
-		if (addr_autoinc)
-			reg_addr += chunk;
-
-		buf += chunk;
-		len -= chunk;
-		seq = (seq + 1) & 0x3;
+		if (ret != payload_len)
+			return -EIO;
 	}
+	*rsp_len = payload_len;
 
 	return 0;
 }
-
-int iomatrix_regmap_block_write_protected(struct regmap *map,
-					  unsigned int base_reg,
-					  const void *buf, size_t len)
-{
-	int ret;
-
-	if (!map || !buf || len == 0)
-		return -EINVAL;
-
-	map->lock(map->lock_arg);
-	ret = iomatrix_block_write(map->bus_context, base_reg, (const u8 *)buf,
-				   (u32)len, true);
-	map->unlock(map->lock_arg);
-
-	if (ret)
-		return ret;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(iomatrix_regmap_block_write_protected);
 
 /*
- * FSPI Erase single-frame transaction over I2C.
- *
- * CMD_ERASE_FSPI payload:
- *   - erase_addr(4B, LE)
- *   - erase_type(1B): 0=4K, 1=32K, 2=64K
- *
- * Response:
- *   - RSP_ACK: success, no payload
- *   - RSP_ERR: failure, 4-byte error code
- *   - others: protocol error
+ * Issue a SPIC command whose success response is a bare ACK (erase, write).
+ * The frame (header + payload) is built here and the transfer is handed to
+ * iomatrix_send_and_recv; an ERR response is decoded from its 4-byte code.
  */
-static int iomatrix_fspi_erase(void *context, u32 erase_addr, u8 erase_type)
+static int iomatrix_spic_ack_cmd(void *context, u8 cmd, const u8 *payload,
+				 u32 payload_len)
 {
 	struct device *dev = context;
-	u8 req_buf[HEAD_BYTES + ERASE_PAYLOAD_B];
+	u8 req_buf[HEAD_BYTES + SPIC_REQ_MAX_PAYLOAD];
 	u8 rsp_type;
-	u32 payload = 0;
+	u32 error = 0;
 	int ret;
-	const u32 erase_sz[3] = { 4U * 1024U, 32U * 1024U, 64U * 1024U };
-	u32 sz;
 
-	if (erase_type > IOMATRIX_ERASE_64K) {
-		dev_err(dev, "Invalid erase_type: %u\n", erase_type);
-		return -EINVAL;
-	}
+	if (payload_len > SPIC_REQ_MAX_PAYLOAD)
+		return -EMSGSIZE;
 
-	sz = erase_sz[erase_type];
-	if (erase_addr & (sz - 1)) {
-		dev_err(dev,
-			"Erase addr 0x%08x is not %u-byte aligned (type %u)\n",
-			erase_addr, sz, erase_type);
-		return -EINVAL;
-	}
+	req_buf[0] = cmd;
+	req_buf[1] = 0;
+	req_buf[2] = (u8)payload_len;
+	memcpy(req_buf + HEAD_BYTES, payload, payload_len);
 
-	req_buf[0] = CMD_ERASE_FSPI;
-	req_buf[1] = 0x00; /* request rsp_type field (unused for request) */
-	req_buf[2] = (0x00 << 6) |
-		     (u8)ERASE_PAYLOAD_B; /* seq=0, payload_len=5 */
-
-	put_unaligned_le32(erase_addr, &req_buf[HEAD_BYTES]); /* addr[0..3] */
-	req_buf[HEAD_BYTES + REG_BYTES] = erase_type; /* type[4]    */
-
-	ret = iomatrix_send_and_recv(context, DELAY_US_ERASE_FSPI, req_buf,
-				     sizeof(req_buf), CMD_ERASE_FSPI, &rsp_type,
-				     &payload);
-	if (ret < 0)
+	ret = iomatrix_send_and_recv(context, DELAY_US_RDWR_MEM, req_buf,
+				     HEAD_BYTES + payload_len, cmd, &rsp_type,
+				     &error);
+	if (ret)
 		return ret;
-
 	if (rsp_type == RSP_ACK)
 		return 0;
-
 	if (rsp_type == RSP_ERR) {
-		dev_err(dev,
-			"FSPI erase failed: err=0x%08x, addr=0x%08x, type=%u\n",
-			payload, erase_addr, erase_type);
-		return -EPROTO;
+		dev_err(dev, "SPIC command 0x%02x failed: 0x%08x\n", cmd,
+			error);
+		return error == 0x00000002 ? -ERANGE : -EIO;
 	}
 
-	dev_err(dev, "Unexpected rsp_type: 0x%02x for CMD_ERASE_FSPI\n",
+	dev_err(dev, "SPIC command 0x%02x unexpected rsp_type 0x%02x\n", cmd,
 		rsp_type);
 	return -EPROTO;
 }
 
-int iomatrix_regmap_fspi_erase_protected(struct regmap *map, u32 erase_addr,
-					 u8 erase_type)
+int iomatrix_regmap_update_lock(struct regmap *map)
 {
+	if (!map)
+		return -EINVAL;
+
+	map->lock(map->lock_arg);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(iomatrix_regmap_update_lock);
+
+void iomatrix_regmap_update_unlock(struct regmap *map)
+{
+	if (map)
+		map->unlock(map->lock_arg);
+}
+EXPORT_SYMBOL_GPL(iomatrix_regmap_update_unlock);
+
+/*
+ * Erase the whole sector that contains @addr (reserved; the update path lets
+ * CMD_UPDATE_SPIC erase on demand).  The payload is the 4-byte address only; the
+ * EC derives the sector from it, so there is no erase-type byte.
+ */
+int iomatrix_regmap_spic_erase(struct regmap *map, u32 addr)
+{
+	u8 payload[ERASE_PAYLOAD_B];
+
+	if (!map)
+		return -EINVAL;
+
+	put_unaligned_le32(addr, payload);
+
+	return iomatrix_spic_ack_cmd(map->bus_context, CMD_ERASE_SPIC, payload,
+				     sizeof(payload));
+}
+EXPORT_SYMBOL_GPL(iomatrix_regmap_spic_erase);
+
+/*
+ * Stream one write frame of a sector.
+ *
+ * Each frame carries up to 128 data bytes at absolute Flash offset @addr and
+ * waits for an ACK, so the EC is paced one frame at a time.  @seq is retained
+ * for future packetization but is currently not encoded on the wire.
+ */
+int iomatrix_regmap_spic_write(struct regmap *map, u32 addr, const u8 *buf,
+			       u32 len, u8 seq)
+{
+	u8 payload[SPIC_REQ_MAX_PAYLOAD];
+
+	(void)seq;
+
+	if (!map || !buf || !len || len > SPIC_WRITE_MAX_BYTES)
+		return -EINVAL;
+
+	put_unaligned_le32(addr, payload);
+	memcpy(payload + REG_BYTES, buf, len);
+
+	return iomatrix_spic_ack_cmd(map->bus_context, CMD_WRITE_SPIC, payload,
+				     REG_BYTES + len);
+}
+EXPORT_SYMBOL_GPL(iomatrix_regmap_spic_write);
+
+/*
+ * SPIC read returns a variable-length DATA payload, which iomatrix_send_and_recv
+ * (fixed 4-byte payload) cannot receive, so the request is sent directly and the
+ * bulk response is drained by iomatrix_spic_recv.
+ */
+int iomatrix_regmap_spic_read(struct regmap *map, u32 addr, u8 *buf, u32 len)
+{
+	struct device *dev;
+	struct i2c_client *i2c;
+	u8 req_buf[HEAD_BYTES + REG_BYTES + 1];
+	u8 rsp_type;
+	u32 rsp_len = len;
+	int ret;
+
+	if (!map || !buf || !len || len > PAYLOAD_MAX_BY_PROTO)
+		return -EINVAL;
+
+	dev = map->bus_context;
+	i2c = to_i2c_client(dev);
+
+	req_buf[0] = CMD_READ_SPIC;
+	req_buf[1] = 0;
+	req_buf[2] = REG_BYTES + 1;
+	put_unaligned_le32(addr, &req_buf[HEAD_BYTES]);
+	req_buf[HEAD_BYTES + REG_BYTES] = (u8)len;
+
+	ret = i2c_master_send(i2c, req_buf, sizeof(req_buf));
+	if (ret < 0)
+		return ret;
+	if (ret != sizeof(req_buf))
+		return -EIO;
+
+	ret = iomatrix_spic_recv(dev, CMD_READ_SPIC, &rsp_type, buf, &rsp_len);
+	if (ret)
+		return ret;
+	if (rsp_type != RSP_DAT || rsp_len != len)
+		return -EPROTO;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(iomatrix_regmap_spic_read);
+
+/*
+ * Commit the EC sector buffer filled by CMD_WRITE_SPIC (no payload).  The EC
+ * compares the buffer against Flash and erases + programs as needed, so the
+ * response may take up to the SPIC timeout.  This uses the sleeping poll of
+ * iomatrix_spic_recv rather than iomatrix_send_and_recv (which busy-waits and is
+ * tuned for fast register responses) to wait out the erase + program.
+ */
+int iomatrix_regmap_spic_update(struct regmap *map)
+{
+	struct device *dev;
+	struct i2c_client *i2c;
+	u8 req_buf[HEAD_BYTES];
+	u8 rsp_buf[VAL_BYTES];
+	u32 rsp_len = sizeof(rsp_buf);
+	u8 rsp_type;
 	int ret;
 
 	if (!map)
 		return -EINVAL;
 
-	map->lock(map->lock_arg);
-	ret = iomatrix_fspi_erase(map->bus_context, erase_addr, erase_type);
-	map->unlock(map->lock_arg);
+	dev = map->bus_context;
+	i2c = to_i2c_client(dev);
 
-	return ret;
+	req_buf[0] = CMD_UPDATE_SPIC;
+	req_buf[1] = 0;
+	req_buf[2] = 0;
+
+	ret = i2c_master_send(i2c, req_buf, sizeof(req_buf));
+	if (ret < 0)
+		return ret;
+	if (ret != sizeof(req_buf))
+		return -EIO;
+
+	ret = iomatrix_spic_recv(dev, CMD_UPDATE_SPIC, &rsp_type, rsp_buf,
+				 &rsp_len);
+	if (ret)
+		return ret;
+	if (rsp_type == RSP_ACK)
+		return 0;
+	if (rsp_type == RSP_ERR && rsp_len == sizeof(u32)) {
+		u32 error = get_unaligned_le32(rsp_buf);
+
+		dev_err(dev, "SPIC update failed: 0x%08x\n", error);
+		return error == 0x00000002 ? -ERANGE : -EIO;
+	}
+
+	dev_err(dev, "SPIC update unexpected rsp_type 0x%02x\n", rsp_type);
+	return -EPROTO;
 }
-EXPORT_SYMBOL_GPL(iomatrix_regmap_fspi_erase_protected);
+EXPORT_SYMBOL_GPL(iomatrix_regmap_spic_update);
+
+/*
+ * Wait for the EC to come back on the bus after a reboot.  During the WDT reset
+ * and re-boot the slave NAKs its address, so a 1-byte read fails; once the new
+ * image answers, the read succeeds.  A quiet loop is used (no per-attempt
+ * dev_err) because failures are the expected state until the EC returns.
+ */
+static int iomatrix_spic_wait_online(void *context)
+{
+	struct device *dev = context;
+	struct i2c_client *i2c = to_i2c_client(dev);
+	unsigned long timeout;
+	u8 probe;
+	int ret;
+
+	/* Let the EC take the WDT reset and start booting the new image before
+	 * probing, so a still-running old image cannot answer as "online".
+	 */
+	msleep(REBOOT_SETTLE_MS);
+
+	timeout = jiffies + msecs_to_jiffies(REBOOT_ONLINE_MS);
+	do {
+		ret = i2c_master_recv(i2c, &probe, 1);
+		if (ret >= 0)
+			return 0;
+		msleep(REBOOT_PROBE_MS);
+	} while (time_before(jiffies, timeout));
+
+	dev_err(dev, "EC did not come back online %d ms after reboot\n",
+		REBOOT_SETTLE_MS + REBOOT_ONLINE_MS);
+	return -ETIMEDOUT;
+}
+
+/*
+ * Reboot the EC once every sector has been committed (no payload).  The EC
+ * resets via its watchdog and does not answer the reboot command itself, so the
+ * request is sent fire-and-forget ([0F][00][00] with a STOP).  Reboot is only
+ * reported successful once the EC acknowledges its address again, i.e. it has
+ * booted the new image; a caller holding the regmap lock keeps other I2C traffic
+ * off the bus across the reset window.
+ */
+int iomatrix_regmap_spic_reboot(struct regmap *map)
+{
+	struct device *dev;
+	struct i2c_client *i2c;
+	u8 req_buf[HEAD_BYTES];
+	int ret;
+
+	if (!map)
+		return -EINVAL;
+
+	dev = map->bus_context;
+	i2c = to_i2c_client(dev);
+
+	req_buf[0] = CMD_REBOOT_EC;
+	req_buf[1] = 0;
+	req_buf[2] = 0;
+
+	ret = i2c_master_send(i2c, req_buf, sizeof(req_buf));
+	if (ret < 0)
+		return ret;
+	if (ret != sizeof(req_buf))
+		return -EIO;
+
+	return iomatrix_spic_wait_online(dev);
+}
+EXPORT_SYMBOL_GPL(iomatrix_regmap_spic_reboot);
 
 /*
  * PECI OOB transaction.

@@ -21,10 +21,12 @@ config MFD_RTS591X_I2C
 	  components like PWM or GPIO under the corresponding menus.
 
 config UAPI_IOMATRIX
-	tristate "UAPI for IOMatrix"
+	tristate "UAPI and firmware update support for IOMatrix"
 	depends on MFD_RTS591X_I2C
+	select FW_UPLOAD
 	help
-	  If you say Y here you get support for IOMatrix UAPI.
+	  If you say Y here you get register access and firmware update support
+	  for IOMatrix devices.
 
 config RTS591X_ESPI_SNOOP
 	tristate "Realtek RTS591x eSPI snoop support"
