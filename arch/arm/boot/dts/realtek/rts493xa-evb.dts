@@ -299,7 +299,7 @@
 			reg = <0x40221700>;
 			interrupts = <RTS591X_IOMATRIX_IRQ_KCS_IBF>;
 			kcs_chan = <1>;
-			realtek,lpc-io-reg = <0xCA2 0xCA3>;
+			realtek,io-reg = <0xCA2 0xCA3>;
 		};
 
 		rts591x-espi-snoop {

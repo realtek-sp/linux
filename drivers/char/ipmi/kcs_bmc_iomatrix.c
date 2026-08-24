@@ -218,7 +218,7 @@ static int rts591x_kcs_set_address(struct kcs_bmc_device *kcs_bmc, u32 addrs[2],
 		if (addrs[1] <= addrs[0] ||
 		    addrs[1] - addrs[0] > (CMDOFS_MASK >> CMDOFS_OFFSET)) {
 			dev_err(kcs_bmc->dev,
-				"Invalid command port offset in 'realtek,lpc-io-reg'\n");
+				"Invalid command port offset in 'realtek,io-reg'\n");
 			return -EINVAL;
 		}
 		cmdofs = addrs[1] - addrs[0];
@@ -236,15 +236,15 @@ static int rts591x_kcs_of_get_io_address(struct device *dev, u32 addrs[2])
 {
 	int rc;
 
-	rc = of_property_read_variable_u32_array(
-		dev->of_node, "realtek,lpc-io-reg", addrs, 1, 2);
+	rc = of_property_read_variable_u32_array(dev->of_node, "realtek,io-reg",
+						 addrs, 1, 2);
 	if (rc < 0) {
-		dev_err(dev, "No valid 'realtek,lpc-io-reg' configured\n");
+		dev_err(dev, "No valid 'realtek,io-reg' configured\n");
 		return rc;
 	}
 
 	if (addrs[0] > DATAADDR_MASK) {
-		dev_err(dev, "Invalid data address in 'realtek,lpc-io-reg'\n");
+		dev_err(dev, "Invalid data address in 'realtek,io-reg'\n");
 		return -EINVAL;
 	}
 
