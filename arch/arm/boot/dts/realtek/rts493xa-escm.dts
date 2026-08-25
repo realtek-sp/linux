@@ -116,6 +116,11 @@
 	rts493xa-mfd@30 {
 		compatible = "realtek,rts591x-mfd-i2c";
 		reg = <0x30>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		realtek,irq-status-reg = <0x20075000>;
+		realtek,irq-ack-reg = <0x20075000>;
 
 		mfd-gpios = <&pinctrl 37 GPIO_ACTIVE_LOW>;
 		interrupt-controller;
@@ -286,6 +291,11 @@
 	rts493xa-mfd@31 {
 		compatible = "realtek,rts591x-mfd-i2c-hpm";
 		reg = <0x31>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		realtek,irq-status-reg = <0x20075000>;
+		realtek,irq-ack-reg = <0x20075000>;
 		status = "disabled";
 
 		mfd-gpios = <&pinctrl 36 GPIO_ACTIVE_LOW>;
@@ -392,11 +402,15 @@
 			reg = <0x4000f000>;
 			clock-source= <0>; /*clock source selection*/
 			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
 			#pwm-cells = <3>;
 
 			fans {
 				reg = <0x4000fd00>;
 				edge-selection = <0>;
+				#address-cells = <1>;
+				#size-cells = <0>;
 
 				rts591x-fan@0 {
 					reg = <0x00>;

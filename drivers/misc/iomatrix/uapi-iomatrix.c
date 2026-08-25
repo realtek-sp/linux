@@ -22,9 +22,9 @@
  */
 
 #include <linux/module.h>
-#include <linux/platform_device.h>
 #include <linux/miscdevice.h>
 #include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/regmap.h>
@@ -311,9 +311,16 @@ static int iomatrix_uapi_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct of_device_id iomatrix_uapi_of_match[] = {
+	{ .compatible = "realtek,iomatrix-uapi" },
+	{}
+};
+MODULE_DEVICE_TABLE(of, iomatrix_uapi_of_match);
+
 static struct platform_driver iomatrix_uapi_driver = {
 	.driver = {
 		.name           = "iomatrix-uapi",
+		.of_match_table = iomatrix_uapi_of_match,
 	},
 	.probe  = iomatrix_uapi_probe,
 	.remove = iomatrix_uapi_remove,

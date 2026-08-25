@@ -24,102 +24,17 @@
 #include <linux/bits.h>
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
-#include <linux/mfd/core.h>
 #include <linux/mfd/iomatrix.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/of_platform.h>
 #include <linux/regmap.h>
 
 #include "rts591x-regmap.h"
 
 struct rts591x_match_data {
-	const struct mfd_cell *cells;
-	int n_cells;
 	const struct regmap_irq_chip *irq_chip;
-};
-
-static const struct rts591x_model_pdata rts591x_model_pdata = {
-	.model = MODEL_ESCM
-};
-static const struct rts591x_model_pdata rts591x_model_hpm_pdata = {
-	.model = MODEL_HPM
-};
-
-static const struct mfd_cell rts591x_mfd_cells[] = {
-	{
-		.name = "iomatrix-uapi",
-		.of_compatible = "realtek,iomatrix-uapi",
-		.id = 1,
-	},
-	{
-		.name = "rts591x-peci",
-		.of_compatible = "realtek,rts591x-peci",
-	},
-	{
-		.name = "rts591x-peci-oob",
-		.of_compatible = "realtek,rts591x-peci-oob",
-	},
-	{
-		.name = "rts591x-gpio",
-		.of_compatible = "realtek,rts591x-gpio",
-		.platform_data = &rts591x_model_pdata,
-		.pdata_size = sizeof(struct rts591x_model_pdata),
-		.id = 1,
-	},
-	{
-		.name = "rts591x-i2c0",
-		.of_compatible = "realtek,rts591x-i2c",
-	},
-	{
-		.name = "rts591x-i2c1",
-		.of_compatible = "realtek,rts591x-i2c",
-	},
-	{
-		.name = "rts591x-i2c3",
-		.of_compatible = "realtek,rts591x-i2c",
-	},
-	{
-		.name = "rts591x-i2c4",
-		.of_compatible = "realtek,rts591x-i2c",
-	},
-	{
-		.name = "rts591x-adc",
-		.of_compatible = "realtek,rts591x-adc",
-	},
-	{
-		.name = "rts591x-pwm-tacho",
-		.of_compatible = "realtek,rts591x-pwm-tacho",
-	},
-	{
-		.name = "rts591x-kcs-bmc",
-		.of_compatible = "realtek,rts591x-kcs-bmc",
-	},
-	{
-		.name = "rts591x-espi-snoop",
-		.of_compatible = "realtek,rts591x-espi-snoop",
-		.id = 0,
-	},
-};
-static const struct mfd_cell rts591x_mfd_cells_hpm[] = {
-	{
-		.name = "iomatrix-uapi",
-		.of_compatible = "realtek,iomatrix-uapi",
-		.id = 2,
-	},
-	{
-		.name = "rts591x-gpio",
-		.of_compatible = "realtek,rts591x-gpio",
-		.platform_data = &rts591x_model_hpm_pdata,
-		.pdata_size = sizeof(struct rts591x_model_pdata),
-		.id = 2,
-	},
-	{
-		.name = "rts591x-adc-hpm",
-		.of_compatible = "realtek,rts591x-adc",
-	},
-	{
-		.name = "rts591x-pwm-tacho-hpm",
-		.of_compatible = "realtek,rts591x-pwm-tacho",
-	},
+	enum rts591x_model model;
 };
 
 static const struct regmap_config rts591x_regmap_config = {
@@ -181,22 +96,50 @@ static const struct regmap_irq_chip rts591x_hpm_irq_chip = {
 };
 
 static const struct rts591x_match_data rts591x_default_data = {
-	.cells = rts591x_mfd_cells,
-	.n_cells = ARRAY_SIZE(rts591x_mfd_cells),
 	.irq_chip = &rts591x_irq_chip,
+	.model = MODEL_ESCM,
 };
 
 static const struct rts591x_match_data rts591x_hpm_data = {
-	.cells = rts591x_mfd_cells_hpm,
-	.n_cells = ARRAY_SIZE(rts591x_mfd_cells_hpm),
 	.irq_chip = &rts591x_hpm_irq_chip,
+	.model = MODEL_HPM,
 };
+
+static void rts591x_mfd_depopulate_children(void *data)
+{
+	struct device *dev = data;
+
+	device_for_each_child_reverse(dev, NULL, of_platform_device_destroy);
+}
+
+static int rts591x_mfd_populate_children(struct device *dev)
+{
+	struct device_node *child;
+	int ret;
+
+	ret = devm_add_action_or_reset(dev, rts591x_mfd_depopulate_children,
+				       dev);
+	if (ret)
+		return ret;
+
+	for_each_child_of_node(dev->of_node, child) {
+		if (!of_device_is_available(child) ||
+		    !of_get_property(child, "compatible", NULL))
+			continue;
+
+		if (!of_platform_device_create(child, NULL, dev)) {
+			of_node_put(child);
+			return -ENOMEM;
+		}
+	}
+
+	return 0;
+}
 
 static int rts591x_mfd_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
 	struct rts591x_mfd_dev *mfd_dev;
-	struct irq_domain *domain = NULL;
 	const struct rts591x_match_data *match_data;
 	int ret;
 
@@ -226,26 +169,41 @@ static int rts591x_mfd_probe(struct i2c_client *client)
 				     "Failed to request rts591x mfd gpio\n");
 
 	if (mfd_dev->irq_gpio && match_data->irq_chip) {
-		ret = devm_regmap_add_irq_chip(
-			mfd_dev->dev, mfd_dev->regmap,
-			gpiod_to_irq(mfd_dev->irq_gpio),
-			IRQF_TRIGGER_FALLING | IRQF_ONESHOT, 0,
-			match_data->irq_chip, &mfd_dev->irq_data);
+		struct regmap_irq_chip *irq_chip;
+
+		/*
+		 * devm_regmap_add_irq_chip() keeps a pointer to the chip and
+		 * does not copy it, so clone the static template and override
+		 * the IRQ status/ack bases from DT.  Missing properties keep
+		 * the template defaults (RTS591X_IRQ_STAT_BASE).
+		 */
+		irq_chip = devm_kzalloc(dev, sizeof(*irq_chip), GFP_KERNEL);
+		if (!irq_chip)
+			return -ENOMEM;
+
+		*irq_chip = *match_data->irq_chip;
+		of_property_read_u32(dev->of_node, "realtek,irq-status-reg",
+				     &irq_chip->status_base);
+		of_property_read_u32(dev->of_node, "realtek,irq-ack-reg",
+				     &irq_chip->ack_base);
+
+		ret = devm_regmap_add_irq_chip(mfd_dev->dev, mfd_dev->regmap,
+					       gpiod_to_irq(mfd_dev->irq_gpio),
+					       IRQF_TRIGGER_FALLING |
+						       IRQF_ONESHOT,
+					       0, irq_chip, &mfd_dev->irq_data);
 		if (ret) {
 			dev_err(dev, "Failed to add rts591x_irq_chip %d\n",
 				ret);
 			return ret;
 		}
-
-		domain = regmap_irq_get_domain(mfd_dev->irq_data);
 	}
 
-	ret = devm_mfd_add_devices(dev, PLATFORM_DEVID_NONE, match_data->cells,
-				   match_data->n_cells, NULL, 0, domain);
-	if (ret) {
-		dev_err(dev, "Failed to add MFD child devices: %d\n", ret);
+	mfd_dev->model = match_data->model;
+
+	ret = rts591x_mfd_populate_children(dev);
+	if (ret)
 		return ret;
-	}
 
 	dev_info(dev, "RTS591x MFD initialized successfully.\n");
 	return 0;

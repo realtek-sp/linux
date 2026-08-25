@@ -102,6 +102,11 @@
 	rts493xa-mfd@30 {
 		compatible = "realtek,rts591x-mfd-i2c";
 		reg = <0x30>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		realtek,irq-status-reg = <0x20075000>;
+		realtek,irq-ack-reg = <0x20075000>;
 
 		mfd-gpios = <&pinctrl 60 GPIO_ACTIVE_LOW>;
 		interrupt-controller;
@@ -173,6 +178,8 @@
 		rts591x-i2c11 {
 			compatible = "realtek,rts591x-i2c";
 			reg = <0x40251400>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			id = <11>;
 			interrupts = <RTS591X_IOMATRIX_IRQ_I2C11>;
 			status = "okay";
@@ -202,6 +209,8 @@
 		rts591x-i2c6 {
 			compatible = "realtek,rts591x-i2c";
 			reg = <0x40250A00>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			id = <6>;
 			interrupts = <RTS591X_IOMATRIX_IRQ_I2C6>;
 			status = "okay";
@@ -266,11 +275,15 @@
 			reg = <0x40254500>;
 			clock-source= <0>; /*clock source selection*/
 			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
 			#pwm-cells = <3>;
 
 			fans {
 				reg = <0x40251f00>;
 				edge-selection = <0>;
+				#address-cells = <1>;
+				#size-cells = <0>;
 				// cnt-ready-interrupt-en;
 				rts591x-fan@0 {
 					reg = <0x00>;

@@ -81,16 +81,13 @@ enum {
 
 #define RTS591X_IRQ_STAT_BASE 0x20075000
 
+enum rts591x_model { MODEL_ESCM = 0, MODEL_HPM };
+
 struct rts591x_mfd_dev {
 	struct device *dev;
 	struct regmap *regmap;
 	struct gpio_desc *irq_gpio;
 	struct regmap_irq_chip_data *irq_data;
-};
-
-enum rts591x_model { MODEL_ESCM = 0, MODEL_HPM };
-
-struct rts591x_model_pdata {
 	enum rts591x_model model;
 };
 

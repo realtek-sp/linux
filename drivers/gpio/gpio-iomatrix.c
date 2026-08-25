@@ -27,6 +27,7 @@
 #include <linux/i2c.h>
 #include <linux/mfd/iomatrix.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 
@@ -280,7 +281,7 @@ static int rts591x_gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 static int rts591x_gpio_probe(struct platform_device *pdev)
 {
 	struct rts591x_gpio_chip *chip;
-	struct rts591x_model_pdata *pdata;
+	struct rts591x_mfd_dev *mfd_dev;
 	struct device *dev, *parent;
 	int ret;
 
@@ -291,13 +292,11 @@ static int rts591x_gpio_probe(struct platform_device *pdev)
 	if (!chip)
 		return -ENOMEM;
 
-	pdata = dev_get_platdata(&pdev->dev);
-	if (pdata) {
-		chip->model = pdata->model;
-	} else {
-		dev_warn(&pdev->dev, "No pdata, defaulting to ESCM\n");
-		chip->model = MODEL_ESCM;
-	}
+	mfd_dev = dev_get_drvdata(parent);
+	if (!mfd_dev)
+		return -ENODEV;
+
+	chip->model = mfd_dev->model;
 
 	chip->regmap = dev_get_regmap(parent, NULL);
 	if (!chip->regmap)
@@ -329,9 +328,16 @@ static int rts591x_gpio_probe(struct platform_device *pdev)
 	return ret;
 }
 
+static const struct of_device_id rts591x_gpio_of_match[] = {
+	{ .compatible = "realtek,rts591x-gpio" },
+	{}
+};
+MODULE_DEVICE_TABLE(of, rts591x_gpio_of_match);
+
 static struct platform_driver rts591x_gpio_driver = {
 	.driver = {
 		.name = DRIVER_NAME,
+		.of_match_table = rts591x_gpio_of_match,
 	},
 	.probe = rts591x_gpio_probe,
 };
