@@ -2032,6 +2032,9 @@ static void rts490xa_hub_remove(struct i2c_client *client)
 	struct rts490xa_hub *priv = i2c_get_clientdata(client);
 	int i;
 
+	debugfs_remove_recursive(priv->debug_dir);
+	cancel_delayed_work_sync(&priv->delayed_work);
+
 	for (i = 0; i < RTS490XA_HUB_TP_MAX_COUNT; i++) {
 		if (priv->smbus_port_adapter[i].used) {
 			cancel_delayed_work_sync(
@@ -2040,9 +2043,6 @@ static void rts490xa_hub_remove(struct i2c_client *client)
 			i2c_del_adapter(&priv->smbus_port_adapter[i].adapter);
 		}
 	}
-
-	cancel_delayed_work_sync(&priv->delayed_work);
-	debugfs_remove_recursive(priv->debug_dir);
 }
 
 const struct of_device_id rts490xa_hub_of_match[] = {
