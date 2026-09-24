@@ -1304,7 +1304,7 @@ static inline bool rts490xa_hub_can_combine_wr_rd(const struct i2c_msg *w,
 }
 
 /**
- * i2c_controller_smbus_port_adapter_xfer() - rts490xa hub smbus transfer logic
+ * i2c_hub_smbus_port_adapter_xfer() - rts490xa hub smbus transfer logic
  * @adap: i2c_adapter corresponding with single port in the rts490xa hub
  * @xfers: all messages descriptors and data
  * @nxfers: amount of single messages in a transfer
@@ -1312,9 +1312,8 @@ static inline bool rts490xa_hub_can_combine_wr_rd(const struct i2c_msg *w,
  * Return: function returns the sum of correctly sent messages (only those with hub return
  * status 0x01)
  */
-static int i2c_controller_smbus_port_adapter_xfer(struct i2c_adapter *adap,
-						  struct i2c_msg *xfers,
-						  int nxfers)
+static int i2c_hub_smbus_port_adapter_xfer(struct i2c_adapter *adap,
+					   struct i2c_msg *xfers, int nxfers)
 {
 	struct i2c_adapter_group *smbus = i2c_get_adapdata(adap);
 	struct rts490xa_hub *hub = smbus->priv;
@@ -1364,7 +1363,7 @@ static int i2c_controller_smbus_port_adapter_xfer(struct i2c_adapter *adap,
 	return ret_sum;
 }
 
-static u32 i2c_controller_smbus_funcs(struct i2c_adapter *adapter)
+static u32 i2c_hub_smbus_funcs(struct i2c_adapter *adapter)
 {
 	return (I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C) & ~I2C_FUNC_SMBUS_QUICK;
 }
@@ -1427,9 +1426,9 @@ static int unreg_i2c_target(struct i2c_client *client)
 }
 #endif /* CONFIG_I2C_SLAVE */
 
-static const struct i2c_algorithm i2c_controller_smbus_algo = {
-	.master_xfer = i2c_controller_smbus_port_adapter_xfer,
-	.functionality = i2c_controller_smbus_funcs,
+static const struct i2c_algorithm i2c_hub_smbus_algo = {
+	.master_xfer = i2c_hub_smbus_port_adapter_xfer,
+	.functionality = i2c_hub_smbus_funcs,
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	.reg_slave = reg_i2c_target,
 	.unreg_slave = unreg_i2c_target,
@@ -1639,7 +1638,7 @@ static int rts490xa_hub_smbus_tp_algo(struct rts490xa_hub *priv, int i)
 
 	adap->dev.parent = dev;
 	adap->owner = dev->driver->owner;
-	adap->algo = &i2c_controller_smbus_algo;
+	adap->algo = &i2c_hub_smbus_algo;
 	adap->dev.of_node = smbus->of_node;
 
 	sprintf(adap->name, "hub0x%X.port%d", priv->hub_dt_cp1_id, i);
