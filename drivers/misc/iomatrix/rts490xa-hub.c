@@ -190,10 +190,20 @@
 #define TARGET_AGENT_BUF_FULL_SDA_LOW_EN	   BIT(5)
 
 /* Transaction status checking mask */
-#define RTS490XA_HUB_CONTROLLER_AGENT_STATUS_MASK   (0xF0 | BIT(0))
-#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_MASK 0xF0
-#define RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG   BIT(0)
-#define RTS490XA_HUB_CONTROLLER_AGENT_ADDRESS_NACK  BIT(4)
+#define RTS490XA_HUB_CONTROLLER_AGENT_STATUS_MASK (0xF0 | BIT(0))
+#define RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG BIT(0)
+
+/* SMBus Controller Agent Return Codes */
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SHIFT		4
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SUCCESS		0x0
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_ADDRESS_NACK	0x1
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_DEVICE_BUSY	0x2
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_READ_NOT_READY	0x3
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SYNC_RECOVERED	0x4
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SYNC_BUS_CLEAR	0x5
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_BUS_FAULT	0x6
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_ARBITRATION_LOST 0x7
+#define RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SCL_TIMEOUT	0x8
 
 #define RTS490XA_HUB_TARGET_BUF_STATUS_MASK GENMASK(3, 1)
 #define RTS490XA_HUB_TARGET_BUF_0_RECEIVE   BIT(1)
@@ -1121,12 +1131,14 @@ err_remove:
 static int rts490xa_hub_read_transaction_status(struct rts490xa_hub *priv,
 						u8 target_port,
 						u8 target_port_status,
-						u8 *status, u32 data_len)
+						u32 data_len)
 {
 	struct i2c_adapter_group *smbus =
 		&priv->smbus_port_adapter[target_port];
 	u32 smbus_clk = priv->settings.tp[target_port].clock_frequency / 1000;
 	unsigned int status_read;
+	u8 status;
+	u8 ret_code;
 	int ret;
 
 	ret = regmap_read_poll_timeout(
@@ -1147,16 +1159,57 @@ static int rts490xa_hub_read_transaction_status(struct rts490xa_hub *priv,
 	if (ret)
 		return ret;
 
-	*status = (u8)status_read & RTS490XA_HUB_CONTROLLER_AGENT_STATUS_MASK;
+	status = (u8)status_read & RTS490XA_HUB_CONTROLLER_AGENT_STATUS_MASK;
 
-	if ((*status & RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_MASK) &&
-	    !(*status & RTS490XA_HUB_CONTROLLER_AGENT_ADDRESS_NACK)) {
-		dev_err(&priv->client->dev,
-			"Invalid transfer status returned: 0x%02x\n", *status);
+	ret_code = status >> RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SHIFT;
+
+	switch (ret_code) {
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SUCCESS:
+		return 0;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_ADDRESS_NACK:
+		dev_dbg(&priv->client->dev,
+			"TP%u SMBus: Address NACK (device not present)\n",
+			target_port);
+		return -ENXIO;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_DEVICE_BUSY:
+		dev_dbg(&priv->client->dev,
+			"TP%u SMBus: Device busy (data NACK after address ACK)\n",
+			target_port);
+		return -EREMOTEIO;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_READ_NOT_READY:
+		dev_dbg(&priv->client->dev,
+			"TP%u SMBus: Device read not ready (read address NACK after write)\n",
+			target_port);
+		return -ENXIO;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SYNC_RECOVERED:
+		dev_dbg(&priv->client->dev,
+			"TP%u SMBus: Sync issue recovered (SDA stuck low, recovered by 9 SCL pulses)\n",
+			target_port);
 		return -EAGAIN;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SYNC_BUS_CLEAR:
+		dev_dbg(&priv->client->dev,
+			"TP%u SMBus: Sync issue bus clear (recovered by SCL low 35ms)\n",
+			target_port);
+		return -EAGAIN;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_BUS_FAULT:
+		dev_err(&priv->client->dev,
+			"TP%u SMBus: Bus fault (SDA stuck low remains after recovery)\n",
+			target_port);
+		return -EIO;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_ARBITRATION_LOST:
+		dev_dbg(&priv->client->dev, "TP%u SMBus: Arbitration lost\n",
+			target_port);
+		return -EAGAIN;
+	case RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_SCL_TIMEOUT:
+		dev_err(&priv->client->dev, "TP%u SMBus: SCL timeout\n",
+			target_port);
+		return -ETIMEDOUT;
+	default:
+		dev_err(&priv->client->dev,
+			"TP%u SMBus: Reserved/unknown return code 0x%x\n",
+			target_port, ret_code);
+		return -EIO;
 	}
-
-	return 0;
 }
 
 /*
@@ -1172,17 +1225,14 @@ static int rts490xa_hub_read_transaction_status(struct rts490xa_hub *priv,
  *   - RTS490XA_HUB_SMBUS_XFER_READ  (1): single read
  *   - RTS490XA_HUB_SMBUS_XFER_WR_RD (2): write followed by read
  *     (uses xfers[nxfers_i] as write and xfers[nxfers_i+1] as read)
- * @return_status: number passed by reference where the return status code is saved
  *
+ * Return: 0 on success, negative errno on failure from hub status or regmap ops.
  * Note: for WR_RD the caller must ensure xfers[nxfers_i+1] exists, the address
  * matches, and write_len + read_len <= RTS490XA_HUB_SMBUS_PAYLOAD_SIZE.
- *
- * Return: on success function returns zero. Otherwise the regmap read or write error code
- * is returned
  */
 static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 				  struct i2c_msg *xfers, u8 target_port,
-				  u8 nxfers_i, u8 xfer_type, u8 *return_status)
+				  u8 nxfers_i, u8 xfer_type)
 {
 	u8 transaction_type = RTS490XA_HUB_SMBUS_400kHz;
 	u8 controller_buffer_page =
@@ -1192,7 +1242,6 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 	u8 target_port_code = BIT(target_port);
 	u8 rw_address = xfers[nxfers_i].addr << 1;
 	u8 desc[RTS490XA_HUB_SMBUS_DESCRIPTOR_SIZE] = { 0 };
-	u8 status;
 	int ret = 0;
 
 	transaction_type = rts490xa_hub_smbus_rate_bits_from_hz(
@@ -1253,12 +1302,10 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 
 	/* Get transaction status */
 	ret = rts490xa_hub_read_transaction_status(hub, target_port,
-						   target_port_status, &status,
+						   target_port_status,
 						   write_length + read_length);
 	if (ret)
 		return ret;
-
-	*return_status = status;
 
 	/* if read_length is non-zero, read back the data */
 	if (read_length) {
@@ -1318,7 +1365,6 @@ static int i2c_hub_smbus_port_adapter_xfer(struct i2c_adapter *adap,
 	struct i2c_adapter_group *smbus = i2c_get_adapdata(adap);
 	struct rts490xa_hub *hub = smbus->priv;
 	int ret_sum = 0, ret, len, type, nxfers_i;
-	u8 return_status = 0;
 	const struct i2c_msg *cur = NULL, *next = NULL;
 
 	for (nxfers_i = 0; nxfers_i < nxfers; nxfers_i++) {
@@ -1344,20 +1390,16 @@ static int i2c_hub_smbus_port_adapter_xfer(struct i2c_adapter *adap,
 		}
 
 		ret = rts490xa_hub_smbus_msg(hub, xfers, smbus->tp_port,
-					     nxfers_i, type, &return_status);
+					     nxfers_i, type);
 		if (ret)
 			return ret;
 
 		if (type == RTS490XA_HUB_SMBUS_XFER_WR_RD) {
-			if (return_status ==
-			    RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG)
-				ret_sum += 2;
+			ret_sum += 2;
 			nxfers_i++; /* skip the next read message */
 
 		} else {
-			if (return_status ==
-			    RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG)
-				ret_sum++;
+			ret_sum++;
 		}
 	}
 	return ret_sum;
