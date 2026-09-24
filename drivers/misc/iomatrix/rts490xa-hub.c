@@ -1665,6 +1665,51 @@ static void rts490xa_hub_delayed_work_polling(struct work_struct *work)
 		msecs_to_jiffies(RTS490XA_HUB_POLLING_ROLL_PERIOD_MS));
 }
 
+/*
+ * Sysfs attribute: clock_frequency
+ * Read/Write the SMBus clock frequency for this adapter's port.
+ */
+static ssize_t clock_frequency_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct i2c_adapter *adap = to_i2c_adapter(dev);
+	struct i2c_adapter_group *smbus = i2c_get_adapdata(adap);
+	struct rts490xa_hub *hub = smbus->priv;
+
+	return sprintf(buf, "%u\n",
+		       hub->settings.tp[smbus->tp_port].clock_frequency);
+}
+
+static ssize_t clock_frequency_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	struct i2c_adapter *adap = to_i2c_adapter(dev);
+	struct i2c_adapter_group *smbus = i2c_get_adapdata(adap);
+	struct rts490xa_hub *hub = smbus->priv;
+	u32 val;
+	int ret;
+
+	ret = kstrtou32(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	if (!rts490xa_hub_smbus_validate_clock_frequency(val))
+		return -EINVAL;
+
+	hub->settings.tp[smbus->tp_port].clock_frequency = val;
+
+	return count;
+}
+static DEVICE_ATTR_RW(clock_frequency);
+
+static struct attribute *rts490xa_hub_smbus_attrs[] = {
+	&dev_attr_clock_frequency.attr,
+	NULL,
+};
+
+ATTRIBUTE_GROUPS(rts490xa_hub_smbus);
+
 static int rts490xa_hub_smbus_tp_algo(struct rts490xa_hub *priv, int i)
 {
 	struct device *dev = &priv->client->dev;
@@ -1682,6 +1727,7 @@ static int rts490xa_hub_smbus_tp_algo(struct rts490xa_hub *priv, int i)
 	adap->owner = dev->driver->owner;
 	adap->algo = &i2c_hub_smbus_algo;
 	adap->dev.of_node = smbus->of_node;
+	adap->dev.groups = rts490xa_hub_smbus_groups;
 
 	sprintf(adap->name, "hub0x%X.port%d", priv->hub_dt_cp1_id, i);
 
