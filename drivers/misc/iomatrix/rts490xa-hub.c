@@ -1407,7 +1407,7 @@ static int i2c_hub_smbus_port_adapter_xfer(struct i2c_adapter *adap,
 
 static u32 i2c_hub_smbus_funcs(struct i2c_adapter *adapter)
 {
-	return (I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C) & ~I2C_FUNC_SMBUS_QUICK;
+	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C;
 }
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
