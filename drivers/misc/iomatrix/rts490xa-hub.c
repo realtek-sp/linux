@@ -1149,7 +1149,7 @@ static int rts490xa_hub_read_transaction_status(struct rts490xa_hub *priv,
 		jiffies_to_usecs(smbus->adapter.timeout));
 	if (ret) {
 		dev_err(&priv->client->dev,
-			"Status read timeout reached on target port %d\n",
+			"TP%u SMBus: timed out polling controller status\n",
 			target_port);
 		return ret;
 	}
@@ -1294,9 +1294,13 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 	if (ret)
 		return ret;
 
-	/* Start transaction */
-	ret = regmap_write(hub->regmap, RTS490XA_HUB_TP_SMBUS_AGNT_TRANS_START,
-			   target_port_code);
+	/* Clear FINISH_FLAG left over from an earlier transfer. */
+	ret = regmap_write(hub->regmap, target_port_status,
+			   RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG);
+	if (!ret)
+		ret = regmap_write(hub->regmap,
+				   RTS490XA_HUB_TP_SMBUS_AGNT_TRANS_START,
+				   target_port_code);
 	if (ret)
 		return ret;
 
