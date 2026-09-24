@@ -935,8 +935,8 @@ static int rts490xa_hub_hw_configure_tp(struct device *dev)
 	if (ret)
 		return ret;
 
-	return regmap_update_bits(priv->regmap, RTS490XA_HUB_TP_NET_CON_CONF,
-				  i2c_mask, i2c_val);
+	return regmap_write(priv->regmap, RTS490XA_HUB_TP_NET_CON_CONF,
+			    i2c_val);
 }
 
 static int rts490xa_hub_configure_hw(struct device *dev)
