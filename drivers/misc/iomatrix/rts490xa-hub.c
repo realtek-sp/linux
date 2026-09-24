@@ -1341,13 +1341,6 @@ static bool backend_is_empty(struct i2c_adapter_group *g_adap,
 	if (!list_empty(&g_adap->backend_entry))
 		return false;
 
-	list_for_each_entry_safe(client, next, &adap->userspace_clients,
-				 detected) {
-		if (!strcmp(client->name, "slave-mqueue") ||
-		    !strcmp(client->name, "mctp-i2c-controller"))
-			return false;
-	}
-
 	return true;
 }
 
@@ -1400,9 +1393,7 @@ static int send_smbus_target_data_to_backend(struct rts490xa_hub *priv,
 		adap = &priv->logical_bus[g_adap->tp_port].adapter;
 		list_for_each_entry_safe(client, next, &adap->userspace_clients,
 					 detected) {
-			if (client->addr == address >> 1 &&
-			    (!strcmp(client->name, "slave-mqueue") ||
-			     !strcmp(client->name, "mctp-i2c-controller"))) {
+			if (client->addr == address >> 1) {
 				ret = send_to_backend(client, address,
 						      local_buffer, len);
 				if (ret) {
@@ -1650,10 +1641,6 @@ read_backend_from_rts490xa_hub_dts(struct device_node *i2c_node_target,
 					      &compatible);
 		if (ret)
 			return ret;
-
-		if (strcmp("slave-mqueue", compatible) &&
-		    strcmp("mctp-i2c-controller", compatible))
-			return -EINVAL;
 
 		backend = kzalloc(sizeof(*backend), GFP_KERNEL);
 		if (!backend)
