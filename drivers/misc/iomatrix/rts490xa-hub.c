@@ -269,7 +269,10 @@
 #define RTS490XA_HUB_POLLING_ROLL_PERIOD_MS	1
 
 /* SMBus transaction types fields */
-#define RTS490XA_HUB_SMBUS_400kHz BIT(2)
+#define RTS490XA_HUB_SMBUS_100kHz  0x00
+#define RTS490XA_HUB_SMBUS_200kHz  BIT(1)
+#define RTS490XA_HUB_SMBUS_400kHz  BIT(2)
+#define RTS490XA_HUB_SMBUS_1000kHz (BIT(1) | BIT(2))
 
 /* Hub buffer size */
 #define RTS490XA_HUB_CONTROLLER_BUFFER_SIZE 88
@@ -281,7 +284,6 @@
 #define RTS490XA_HUB_SMBUS_TARGET_PAYLOAD_SIZE \
 	(RTS490XA_HUB_TARGET_BUFFER_SIZE - 2)
 
-#define RTS490XA_HUB_SMBUS_CLOCK_KHZ 400
 /* Hub SMBus status register read interval (microseconds, ceil) */
 #define RTS490XA_HUB_SMBUS_STATUS_READ_INTERVAL_US_CEIL(len, clk_khz) \
 	DIV_ROUND_UP(1000U * 9U * (u32)(len), (u32)(clk_khz))
@@ -294,6 +296,7 @@ struct tp_setting {
 	u8 mode;
 	u8 pullup_en;
 	bool always_enable;
+	u32 clock_frequency;
 };
 
 struct dt_settings {
@@ -477,13 +480,40 @@ static void rts490xa_hub_of_get_setting(struct device *dev,
 	dev_warn(dev, "Unknown setting for %s: '%s'\n", setting_name, sval);
 }
 
+static bool rts490xa_hub_smbus_validate_clock_frequency(u32 hz)
+{
+	switch (hz) {
+	case 100000:
+	case 200000:
+	case 400000:
+	case 1000000:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static inline u8 rts490xa_hub_smbus_rate_bits_from_hz(u32 hz)
+{
+	switch (hz) {
+	case 100000:
+		return RTS490XA_HUB_SMBUS_100kHz;
+	case 200000:
+		return RTS490XA_HUB_SMBUS_200kHz;
+	case 1000000:
+		return RTS490XA_HUB_SMBUS_1000kHz;
+	default:
+		return RTS490XA_HUB_SMBUS_400kHz;
+	}
+}
+
 static void rts490xa_hub_tp_of_get_setting(struct device *dev,
 					   const struct device_node *node,
 					   struct tp_setting tp_setting[])
 {
 	struct rts490xa_hub *priv = dev_get_drvdata(dev);
 	struct device_node *tp_node;
-	u32 id;
+	u32 id, val;
 
 	for_each_available_child_of_node(node, tp_node) {
 		if (!tp_node->name || of_node_cmp(tp_node->name, "target-port"))
@@ -515,6 +545,17 @@ static void rts490xa_hub_tp_of_get_setting(struct device *dev,
 					    &tp_setting[id].pullup_en);
 		tp_setting[id].always_enable =
 			of_property_read_bool(tp_node, "always-enable");
+
+		if (!of_property_read_u32(tp_node, "clock-frequency", &val)) {
+			if (rts490xa_hub_smbus_validate_clock_frequency(val))
+				tp_setting[id].clock_frequency = val;
+			else
+				dev_warn(
+					dev,
+					"Unsupported TP%d smbus clock-frequency: %u Hz, using default %u Hz\n",
+					id, val,
+					tp_setting[id].clock_frequency);
+		}
 	}
 }
 
@@ -606,6 +647,7 @@ static void rts490xa_hub_of_default_configuration(struct device *dev)
 			RTS490XA_HUB_DT_TP_MODE_NOT_DEFINED;
 		priv->settings.tp[id].pullup_en =
 			RTS490XA_HUB_DT_TP_PULLUP_NOT_DEFINED;
+		priv->settings.tp[id].clock_frequency = 400000;
 	}
 }
 
@@ -1045,6 +1087,9 @@ static int rts490xa_hub_debugfs_init(struct rts490xa_hub *priv,
 		sprintf(file_name, "tp%i.pullup_en", i);
 		debugfs_create_u8(file_name, 0400, dt_conf_dir,
 				  &settings->tp[i].pullup_en);
+		sprintf(file_name, "tp%i.clock_frequency", i);
+		debugfs_create_u32(file_name, 0400, dt_conf_dir,
+				   &settings->tp[i].clock_frequency);
 	}
 
 	entry = debugfs_create_dir("reg", priv->debug_dir);
@@ -1074,14 +1119,15 @@ static int rts490xa_hub_read_transaction_status(struct rts490xa_hub *priv,
 {
 	struct i2c_adapter_group *smbus =
 		&priv->smbus_port_adapter[target_port];
+	u32 smbus_clk = priv->settings.tp[target_port].clock_frequency / 1000;
 	unsigned int status_read;
 	int ret;
 
 	ret = regmap_read_poll_timeout(
 		priv->regmap, target_port_status, status_read,
 		(u8)status_read & RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG,
-		RTS490XA_HUB_SMBUS_STATUS_READ_INTERVAL_US_CEIL(
-			data_len, RTS490XA_HUB_SMBUS_CLOCK_KHZ),
+		RTS490XA_HUB_SMBUS_STATUS_READ_INTERVAL_US_CEIL(data_len,
+								smbus_clk),
 		jiffies_to_usecs(smbus->adapter.timeout));
 	if (ret) {
 		dev_err(&priv->client->dev,
@@ -1137,6 +1183,9 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *priv,
 	u8 desc[RTS490XA_HUB_SMBUS_DESCRIPTOR_SIZE] = { 0 };
 	u8 status;
 	int ret = 0;
+
+	transaction_type = rts490xa_hub_smbus_rate_bits_from_hz(
+		priv->settings.tp[target_port].clock_frequency);
 
 	if (rw)
 		rw_address |= BIT(0);
