@@ -27,6 +27,8 @@
 #include <linux/ktime.h>
 #include <linux/bitfield.h>
 #include <linux/debugfs.h>
+#include <linux/jiffies.h>
+#include <linux/math.h>
 #include <linux/module.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
@@ -279,8 +281,10 @@
 #define RTS490XA_HUB_SMBUS_TARGET_PAYLOAD_SIZE \
 	(RTS490XA_HUB_TARGET_BUFFER_SIZE - 2)
 
-/* Hub SMBus timeout time period in nanoseconds */
-#define RTS490XA_HUB_SMBUS_400kHz_TIMEOUT 2e8
+#define RTS490XA_HUB_SMBUS_CLOCK_KHZ 400
+/* Hub SMBus status register read interval (microseconds, ceil) */
+#define RTS490XA_HUB_SMBUS_STATUS_READ_INTERVAL_US_CEIL(len, clk_khz) \
+	DIV_ROUND_UP(1000U * 9U * (u32)(len), (u32)(clk_khz))
 
 /* ID Extraction */
 #define RTS490XA_HUB_ID_CP_SDA_SCL 0x00
@@ -1064,43 +1068,42 @@ err_remove:
 }
 
 static int rts490xa_hub_read_transaction_status(struct rts490xa_hub *priv,
+						u8 target_port,
 						u8 target_port_status,
-						u8 *status)
+						u8 *status, u32 data_len)
 {
-	unsigned long time_to_timeout = 0;
+	struct i2c_adapter_group *smbus =
+		&priv->smbus_port_adapter[target_port];
 	unsigned int status_read;
-	ktime_t start, end;
 	int ret;
 
-	start = ktime_get_real();
-
-	msleep(10);
-	while (time_to_timeout < (long)RTS490XA_HUB_SMBUS_400kHz_TIMEOUT) {
-		ret = regmap_read(priv->regmap, target_port_status,
-				  &status_read);
-		if (ret)
-			return ret;
-
-		*status = (u8)status_read &
-			  RTS490XA_HUB_CONTROLLER_AGENT_STATUS_MASK;
-
-		if (*status & RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG) {
-			if ((*status &
-			     RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_MASK) &&
-			    !(*status &
-			      RTS490XA_HUB_CONTROLLER_AGENT_ADDRESS_NACK)) {
-				dev_err(&priv->client->dev,
-					"Invalid transfer status returned: 0x%02x\n",
-					*status);
-				return -EAGAIN;
-			}
-			return 0;
-		}
-
-		end = ktime_get_real();
-		time_to_timeout = end - start;
+	ret = regmap_read_poll_timeout(
+		priv->regmap, target_port_status, status_read,
+		(u8)status_read & RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG,
+		RTS490XA_HUB_SMBUS_STATUS_READ_INTERVAL_US_CEIL(
+			data_len, RTS490XA_HUB_SMBUS_CLOCK_KHZ),
+		jiffies_to_usecs(smbus->adapter.timeout));
+	if (ret) {
+		dev_err(&priv->client->dev,
+			"Status read timeout reached on target port %d\n",
+			target_port);
+		return ret;
 	}
-	dev_err(&priv->client->dev, "Status read timeout reached\n");
+
+	ret = regmap_write(priv->regmap, target_port_status,
+			   RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG);
+	if (ret)
+		return ret;
+
+	*status = (u8)status_read & RTS490XA_HUB_CONTROLLER_AGENT_STATUS_MASK;
+
+	if ((*status & RTS490XA_HUB_CONTROLLER_AGENT_RET_CODE_MASK) &&
+	    !(*status & RTS490XA_HUB_CONTROLLER_AGENT_ADDRESS_NACK)) {
+		dev_err(&priv->client->dev,
+			"Invalid transfer status returned: 0x%02x\n", *status);
+		return -EAGAIN;
+	}
+
 	return 0;
 }
 
@@ -1145,11 +1148,6 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *priv,
 	desc[2] = write_length;
 	desc[3] = read_length;
 
-	ret = regmap_write(priv->regmap, target_port_status,
-			   RTS490XA_HUB_CONTROLLER_AGENT_FINISH_FLAG);
-	if (ret)
-		return ret;
-
 	mutex_lock(&priv->page_mutex);
 	ret = regmap_write(priv->regmap, RTS490XA_HUB_PAGE_PTR,
 			   controller_buffer_page);
@@ -1181,8 +1179,9 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *priv,
 	if (ret)
 		return ret;
 
-	ret = rts490xa_hub_read_transaction_status(priv, target_port_status,
-						   &status);
+	ret = rts490xa_hub_read_transaction_status(priv, target_port,
+						   target_port_status, &status,
+						   write_length + read_length);
 	if (ret)
 		return ret;
 
