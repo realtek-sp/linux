@@ -317,20 +317,16 @@ struct smbus_backend {
 };
 
 struct i2c_adapter_group {
+	struct i2c_adapter adapter;
 	u8 tp_mask;
 	u8 tp_port;
 	u8 used;
+	struct device_node *of_node;
+	struct rts490xa_hub *priv;
 
 	struct delayed_work delayed_work_polling;
 	struct list_head backend_entry;
 	u8 last_processed_buf;
-};
-
-struct logical_bus {
-	struct i2c_adapter adapter;
-	struct i2c_adapter_group smbus_port_adapter;
-	struct device_node *of_node;
-	struct rts490xa_hub *priv;
 };
 
 struct hub_gpio {
@@ -349,7 +345,8 @@ struct rts490xa_hub {
 	int hub_dt_sel_id;
 	int hub_dt_cp1_id;
 
-	struct logical_bus logical_bus[RTS490XA_HUB_LOGICAL_BUS_MAX_COUNT];
+	struct i2c_adapter_group
+		smbus_port_adapter[RTS490XA_HUB_LOGICAL_BUS_MAX_COUNT];
 	struct mutex page_mutex;
 
 	/* Offset for reading HUB's register. */
@@ -1227,9 +1224,8 @@ static int i2c_controller_smbus_port_adapter_xfer(struct i2c_adapter *adap,
 						  struct i2c_msg *xfers,
 						  int nxfers)
 {
-	struct logical_bus *bus =
-		container_of(adap, struct logical_bus, adapter);
-	struct rts490xa_hub *priv = bus->priv;
+	struct i2c_adapter_group *smbus = i2c_get_adapdata(adap);
+	struct rts490xa_hub *priv = smbus->priv;
 	int ret_sum = 0;
 	int ret;
 	u8 return_status;
@@ -1246,8 +1242,7 @@ static int i2c_controller_smbus_port_adapter_xfer(struct i2c_adapter *adap,
 
 		rw = xfers[nxfers_i].flags % 2;
 
-		ret = rts490xa_hub_smbus_msg(priv, xfers,
-					     bus->smbus_port_adapter.tp_port,
+		ret = rts490xa_hub_smbus_msg(priv, xfers, smbus->tp_port,
 					     nxfers_i, rw, &return_status);
 		if (ret)
 			return ret;
@@ -1286,24 +1281,23 @@ static void rts490xa_hub_delayed_work(struct work_struct *work)
 	struct device *dev = &priv->client->dev;
 	struct i2c_board_info host_notify_board_info = { 0 };
 	struct smbus_backend *backend = NULL;
-	struct logical_bus *bus;
+	struct i2c_adapter_group *smbus;
 	int ret;
 	int i;
 
 	for (i = 0; i < RTS490XA_HUB_TP_MAX_COUNT; i++) {
-		bus = &priv->logical_bus[i];
-		if (!bus->smbus_port_adapter.used)
+		smbus = &priv->smbus_port_adapter[i];
+		if (!smbus->used)
 			continue;
 
-		list_for_each_entry(
-			backend, &bus->smbus_port_adapter.backend_entry, list) {
+		list_for_each_entry(backend, &smbus->backend_entry, list) {
 			host_notify_board_info.addr = backend->addr;
 			host_notify_board_info.flags = I2C_CLIENT_SLAVE;
 			snprintf(host_notify_board_info.type, I2C_NAME_SIZE,
 				 backend->compatible);
 
 			backend->client = i2c_new_client_device(
-				&bus->adapter, &host_notify_board_info);
+				&smbus->adapter, &host_notify_board_info);
 			if (IS_ERR(backend->client)) {
 				dev_warn(dev,
 					 "Error while registering backend\n");
@@ -1312,24 +1306,9 @@ static void rts490xa_hub_delayed_work(struct work_struct *work)
 		}
 
 		schedule_delayed_work(
-			&bus->smbus_port_adapter.delayed_work_polling,
+			&smbus->delayed_work_polling,
 			msecs_to_jiffies(RTS490XA_HUB_POLLING_ROLL_PERIOD_MS));
 	}
-}
-
-static int rts490xa_hub_register_smbus_adapter(struct rts490xa_hub *priv, int i)
-{
-	struct device *dev = &priv->client->dev;
-	int ret;
-
-	dev->of_node = priv->logical_bus[i].of_node;
-	ret = i2c_add_adapter(&priv->logical_bus[i].adapter);
-	if (ret) {
-		dev_warn(dev, "Failed to register i2c adapter\n");
-		return ret;
-	}
-
-	return 0;
 }
 
 /* return true when backend is empty */
@@ -1390,7 +1369,7 @@ static int send_smbus_target_data_to_backend(struct rts490xa_hub *priv,
 	}
 
 	if (!found_backend) {
-		adap = &priv->logical_bus[g_adap->tp_port].adapter;
+		adap = &priv->smbus_port_adapter[g_adap->tp_port].adapter;
 		list_for_each_entry_safe(client, next, &adap->userspace_clients,
 					 detected) {
 			if (client->addr == address >> 1) {
@@ -1464,21 +1443,18 @@ static void rts490xa_hub_delayed_work_polling(struct work_struct *work)
 {
 	struct i2c_adapter_group *g_adap =
 		container_of(work, typeof(*g_adap), delayed_work_polling.work);
-	struct logical_bus *bus =
-		container_of(g_adap, struct logical_bus, smbus_port_adapter);
+	struct rts490xa_hub *priv = g_adap->priv;
 	u8 controller_buffer_page =
 		RTS490XA_HUB_CONTROLLER_BUFFER_PAGE + 4 * g_adap->tp_port;
 	u8 target_port_status =
 		RTS490XA_HUB_TP0_SMBUS_AGNT_STS + g_adap->tp_port;
 	u8 local_buffer[RTS490XA_HUB_SMBUS_TARGET_PAYLOAD_SIZE] = { 0 };
-	u8 target_buffer_page, address, len, flag;
-	struct rts490xa_hub *priv = bus->priv;
+	u8 target_buffer_page, address = 0, len = 0, flag;
 	struct device *dev = &priv->client->dev;
 	u32 status;
 	int ret;
 
-	if (backend_is_empty(g_adap,
-			     &priv->logical_bus[g_adap->tp_port].adapter)) {
+	if (backend_is_empty(g_adap, &g_adap->adapter)) {
 		schedule_delayed_work(
 			&g_adap->delayed_work_polling,
 			msecs_to_jiffies(RTS490XA_HUB_POLLING_ROLL_PERIOD_MS));
@@ -1553,31 +1529,33 @@ static int rts490xa_hub_smbus_tp_algo(struct rts490xa_hub *priv, int i)
 {
 	struct device *dev = &priv->client->dev;
 	int ret;
+	struct i2c_adapter_group *smbus = &priv->smbus_port_adapter[i];
+	struct i2c_adapter *adap = &smbus->adapter;
 
-	priv->logical_bus[i].priv = priv;
-	priv->logical_bus[i].smbus_port_adapter.tp_port = i;
-	priv->logical_bus[i].smbus_port_adapter.tp_mask = BIT(i);
+	smbus->priv = priv;
+	smbus->tp_port = i;
+	smbus->tp_mask = BIT(i);
 
-	INIT_DELAYED_WORK(
-		&priv->logical_bus[i].smbus_port_adapter.delayed_work_polling,
-		rts490xa_hub_delayed_work_polling);
+	adap->dev.parent = dev;
+	adap->owner = dev->driver->owner;
+	adap->algo = &i2c_controller_smbus_algo;
+	adap->dev.of_node = smbus->of_node;
 
-	priv->logical_bus[i].adapter.dev.parent = dev;
-	priv->logical_bus[i].adapter.owner = dev->driver->owner;
-	priv->logical_bus[i].adapter.algo = &i2c_controller_smbus_algo;
+	sprintf(adap->name, "hub0x%X.port%d", priv->hub_dt_cp1_id, i);
 
-	sprintf(priv->logical_bus[i].adapter.name, "hub0x%X.port%d",
-		priv->hub_dt_cp1_id, i);
+	adap->timeout = 1000;
+	adap->retries = 3;
 
-	priv->logical_bus[i].adapter.timeout = 1000;
-	priv->logical_bus[i].adapter.retries = 3;
+	i2c_set_adapdata(adap, smbus);
 
-	/* Register adapter for target port */
-	ret = rts490xa_hub_register_smbus_adapter(priv, i);
+	ret = i2c_add_adapter(adap);
 	if (ret)
 		return ret;
 
-	priv->logical_bus[i].smbus_port_adapter.used = 1;
+	smbus->used = 1;
+
+	INIT_DELAYED_WORK(&smbus->delayed_work_polling,
+			  rts490xa_hub_delayed_work_polling);
 
 	return 0;
 }
@@ -1588,9 +1566,7 @@ static bool backend_node_is_exist(int port, struct rts490xa_hub *priv, u32 addr)
 	struct smbus_backend *backend = NULL;
 
 	list_for_each_entry(
-		backend,
-		&priv->logical_bus[port].smbus_port_adapter.backend_entry,
-		list) {
+		backend, &priv->smbus_port_adapter[port].backend_entry, list) {
 		if (backend->addr == addr)
 			return true;
 	}
@@ -1617,8 +1593,8 @@ read_backend_from_rts490xa_hub_dts(struct device_node *i2c_node_target,
 	if (tp_port < 0)
 		return -EINVAL;
 
-	INIT_LIST_HEAD(
-		&priv->logical_bus[tp_port].smbus_port_adapter.backend_entry);
+	priv->smbus_port_adapter[tp_port].of_node = i2c_node_target;
+	INIT_LIST_HEAD(&priv->smbus_port_adapter[tp_port].backend_entry);
 	for_each_available_child_of_node(i2c_node_target, i2c_node_tp) {
 		if (strcmp(i2c_node_tp->name, "backend"))
 			continue;
@@ -1642,10 +1618,8 @@ read_backend_from_rts490xa_hub_dts(struct device_node *i2c_node_target,
 
 		backend->addr = addr_dts;
 		backend->compatible = compatible;
-		priv->logical_bus[tp_port].of_node = i2c_node_target;
 		list_add(&backend->list,
-			 &priv->logical_bus[tp_port]
-				  .smbus_port_adapter.backend_entry);
+			 &priv->smbus_port_adapter[tp_port].backend_entry);
 	}
 
 	return 0;
@@ -1912,7 +1886,7 @@ static int rts490xa_hub_probe(struct i2c_client *client)
 
 	/* Register logic for native smbus ports */
 	for (i = 0; i < RTS490XA_HUB_TP_MAX_COUNT; i++) {
-		priv->logical_bus[i].smbus_port_adapter.used = 0;
+		priv->smbus_port_adapter[i].used = 0;
 		if (priv->settings.tp[i].mode == RTS490XA_HUB_DT_TP_MODE_SMBUS)
 			ret = rts490xa_hub_smbus_tp_algo(priv, i);
 	}
@@ -1960,8 +1934,8 @@ static void rts490xa_hub_remove(struct i2c_client *client)
 	int i;
 
 	for (i = 0; i < RTS490XA_HUB_TP_MAX_COUNT; i++) {
-		if (priv->logical_bus[i].smbus_port_adapter.used) {
-			g_adap = &priv->logical_bus[i].smbus_port_adapter;
+		if (priv->smbus_port_adapter[i].used) {
+			g_adap = &priv->smbus_port_adapter[i];
 			cancel_delayed_work_sync(&g_adap->delayed_work_polling);
 			list_for_each_entry(backend, &g_adap->backend_entry,
 					    list) {
@@ -1970,8 +1944,8 @@ static void rts490xa_hub_remove(struct i2c_client *client)
 			}
 		}
 
-		if (priv->logical_bus[i].smbus_port_adapter.used)
-			i2c_del_adapter(&priv->logical_bus[i].adapter);
+		if (priv->smbus_port_adapter[i].used)
+			i2c_del_adapter(&priv->smbus_port_adapter[i].adapter);
 	}
 
 	cancel_delayed_work_sync(&priv->delayed_work);
