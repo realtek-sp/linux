@@ -311,8 +311,6 @@ struct dt_settings {
 };
 struct smbus_backend {
 	struct i2c_client *client;
-	const char *compatible;
-	int addr;
 	struct list_head list;
 };
 
@@ -323,6 +321,7 @@ struct i2c_adapter_group {
 	u8 used;
 	struct device_node *of_node;
 	struct rts490xa_hub *priv;
+	struct mutex mutex;
 
 	struct delayed_work delayed_work_polling;
 	struct list_head backend_entry;
@@ -478,6 +477,7 @@ static void rts490xa_hub_tp_of_get_setting(struct device *dev,
 					   const struct device_node *node,
 					   struct tp_setting tp_setting[])
 {
+	struct rts490xa_hub *priv = dev_get_drvdata(dev);
 	struct device_node *tp_node;
 	u32 id;
 
@@ -499,6 +499,8 @@ static void rts490xa_hub_tp_of_get_setting(struct device *dev,
 				 id);
 			continue;
 		}
+
+		priv->smbus_port_adapter[id].of_node = tp_node;
 		rts490xa_hub_of_get_setting(dev, tp_node, "mode",
 					    tp_mode_settings,
 					    ARRAY_SIZE(tp_mode_settings),
@@ -1259,12 +1261,58 @@ static u32 i2c_controller_smbus_funcs(struct i2c_adapter *adapter)
 
 static int reg_i2c_target(struct i2c_client *client)
 {
-	return 0;
+	struct i2c_adapter_group *smbus = i2c_get_adapdata(client->adapter);
+	struct smbus_backend *backend;
+	int ret = 0;
+
+	if (!smbus)
+		return -EINVAL;
+
+	mutex_lock(&smbus->mutex);
+
+	list_for_each_entry(backend, &smbus->backend_entry, list) {
+		if (backend->client->addr == client->addr) {
+			ret = -EBUSY;
+			goto out;
+		}
+	}
+
+	backend = kzalloc(sizeof(*backend), GFP_KERNEL);
+	if (!backend) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	backend->client = client;
+	list_add(&backend->list, &smbus->backend_entry);
+
+out:
+	mutex_unlock(&smbus->mutex);
+	return ret;
 }
 
 static int unreg_i2c_target(struct i2c_client *client)
 {
-	return 0;
+	struct i2c_adapter_group *smbus = i2c_get_adapdata(client->adapter);
+	struct smbus_backend *backend;
+	bool found = false;
+
+	if (!smbus)
+		return -EINVAL;
+
+	mutex_lock(&smbus->mutex);
+
+	list_for_each_entry(backend, &smbus->backend_entry, list) {
+		if (backend->client->addr == client->addr) {
+			list_del(&backend->list);
+			kfree(backend);
+			found = true;
+			break;
+		}
+	}
+
+	mutex_unlock(&smbus->mutex);
+	return found ? 0 : -ENODEV;
 }
 
 static const struct i2c_algorithm i2c_controller_smbus_algo = {
@@ -1278,11 +1326,7 @@ static void rts490xa_hub_delayed_work(struct work_struct *work)
 {
 	struct rts490xa_hub *priv =
 		container_of(work, typeof(*priv), delayed_work.work);
-	struct device *dev = &priv->client->dev;
-	struct i2c_board_info host_notify_board_info = { 0 };
-	struct smbus_backend *backend = NULL;
 	struct i2c_adapter_group *smbus;
-	int ret;
 	int i;
 
 	for (i = 0; i < RTS490XA_HUB_TP_MAX_COUNT; i++) {
@@ -1290,57 +1334,10 @@ static void rts490xa_hub_delayed_work(struct work_struct *work)
 		if (!smbus->used)
 			continue;
 
-		list_for_each_entry(backend, &smbus->backend_entry, list) {
-			host_notify_board_info.addr = backend->addr;
-			host_notify_board_info.flags = I2C_CLIENT_SLAVE;
-			snprintf(host_notify_board_info.type, I2C_NAME_SIZE,
-				 backend->compatible);
-
-			backend->client = i2c_new_client_device(
-				&smbus->adapter, &host_notify_board_info);
-			if (IS_ERR(backend->client)) {
-				dev_warn(dev,
-					 "Error while registering backend\n");
-				return;
-			}
-		}
-
 		schedule_delayed_work(
 			&smbus->delayed_work_polling,
 			msecs_to_jiffies(RTS490XA_HUB_POLLING_ROLL_PERIOD_MS));
 	}
-}
-
-/* return true when backend is empty */
-static bool backend_is_empty(struct i2c_adapter_group *g_adap,
-			     struct i2c_adapter *adap)
-{
-	struct i2c_client *client, *next;
-
-	if (!list_empty(&g_adap->backend_entry))
-		return false;
-
-	return true;
-}
-
-static int send_to_backend(struct i2c_client *client, u8 address, u8 *val,
-			   u8 len)
-{
-	int i, ret;
-	u8 tmp;
-
-	ret = i2c_slave_event(client, I2C_SLAVE_WRITE_REQUESTED, &address);
-	if (ret)
-		return ret;
-
-	for (i = 0; i < len; i++) {
-		ret = i2c_slave_event(client, I2C_SLAVE_WRITE_RECEIVED,
-				      &val[i]);
-		if (ret)
-			return ret;
-	}
-
-	return i2c_slave_event(client, I2C_SLAVE_STOP, &tmp);
 }
 
 static int send_smbus_target_data_to_backend(struct rts490xa_hub *priv,
@@ -1349,44 +1346,35 @@ static int send_smbus_target_data_to_backend(struct rts490xa_hub *priv,
 					     u8 len)
 {
 	struct smbus_backend *backend;
-	struct i2c_client *client, *next;
-	struct i2c_adapter *adap;
-	bool found_backend = false;
-	int ret;
+	struct i2c_client *client;
+	int i, ret;
+	u8 tmp;
+
+	mutex_lock(&g_adap->mutex);
 
 	list_for_each_entry(backend, &g_adap->backend_entry, list) {
-		if (address >> 1 == backend->addr) {
-			ret = send_to_backend(backend->client, address,
-					      local_buffer, len);
-			if (ret) {
-				dev_err(&priv->client->dev,
-					"Failed to send to backend: %d\n", ret);
+		client = backend->client;
+		if (client->addr == address >> 1) {
+			mutex_unlock(&g_adap->mutex);
+			ret = i2c_slave_event(client, I2C_SLAVE_WRITE_REQUESTED,
+					      &address);
+			if (ret)
 				return ret;
-			}
-			found_backend = true;
-			break;
-		}
-	}
 
-	if (!found_backend) {
-		adap = &priv->smbus_port_adapter[g_adap->tp_port].adapter;
-		list_for_each_entry_safe(client, next, &adap->userspace_clients,
-					 detected) {
-			if (client->addr == address >> 1) {
-				ret = send_to_backend(client, address,
-						      local_buffer, len);
-				if (ret) {
-					dev_err(&priv->client->dev,
-						"Failed to send to userspace client: %d\n",
-						ret);
+			for (i = 0; i < len; i++) {
+				ret = i2c_slave_event(client,
+						      I2C_SLAVE_WRITE_RECEIVED,
+						      &local_buffer[i]);
+				if (ret)
 					return ret;
-				}
-				break;
 			}
+
+			return i2c_slave_event(client, I2C_SLAVE_STOP, &tmp);
 		}
 	}
 
-	return 0;
+	mutex_unlock(&g_adap->mutex);
+	return -ENXIO;
 }
 
 static int read_smbus_target_buffer_page(struct rts490xa_hub *priv,
@@ -1433,9 +1421,8 @@ error:
 
 /**
  * rts490xa_hub_delayed_work_polling() - This delayed work is a polling mechanism to
- * find if any transaction happened. After a transaction was found it is saved with
- * the slave-mqueue backend and can be read from the fs. Controller buffer page is
- * determined by adding the first buffer page number to port index multiplied by four.
+ * find if any transaction happened. Controller buffer page is determined by adding
+ * the first buffer page number to port index multiplied by four.
  * The two target buffer page numbers are determined the same way but they are offset
  * by 2 and 3 from the controller page.
  */
@@ -1454,12 +1441,8 @@ static void rts490xa_hub_delayed_work_polling(struct work_struct *work)
 	u32 status;
 	int ret;
 
-	if (backend_is_empty(g_adap, &g_adap->adapter)) {
-		schedule_delayed_work(
-			&g_adap->delayed_work_polling,
-			msecs_to_jiffies(RTS490XA_HUB_POLLING_ROLL_PERIOD_MS));
+	if (list_empty(&g_adap->backend_entry))
 		return;
-	}
 
 	ret = regmap_read(priv->regmap, target_port_status, &status);
 	if (ret) {
@@ -1532,6 +1515,8 @@ static int rts490xa_hub_smbus_tp_algo(struct rts490xa_hub *priv, int i)
 	struct i2c_adapter_group *smbus = &priv->smbus_port_adapter[i];
 	struct i2c_adapter *adap = &smbus->adapter;
 
+	mutex_init(&smbus->mutex);
+	INIT_LIST_HEAD(&smbus->backend_entry);
 	smbus->priv = priv;
 	smbus->tp_port = i;
 	smbus->tp_mask = BIT(i);
@@ -1558,100 +1543,6 @@ static int rts490xa_hub_smbus_tp_algo(struct rts490xa_hub *priv, int i)
 			  rts490xa_hub_delayed_work_polling);
 
 	return 0;
-}
-
-/* return true when backend node exist */
-static bool backend_node_is_exist(int port, struct rts490xa_hub *priv, u32 addr)
-{
-	struct smbus_backend *backend = NULL;
-
-	list_for_each_entry(
-		backend, &priv->smbus_port_adapter[port].backend_entry, list) {
-		if (backend->addr == addr)
-			return true;
-	}
-
-	return false;
-}
-
-static int
-read_backend_from_rts490xa_hub_dts(struct device_node *i2c_node_target,
-				   struct rts490xa_hub *priv)
-{
-	struct device_node *i2c_node_tp;
-	const char *compatible;
-	int tp_port, ret;
-	u32 addr_dts;
-	struct smbus_backend *backend;
-
-	if (sscanf(i2c_node_target->full_name, "target-port@%d", &tp_port) == 0)
-		return -EINVAL;
-
-	if (tp_port > RTS490XA_HUB_TP_MAX_COUNT)
-		return -ERANGE;
-
-	if (tp_port < 0)
-		return -EINVAL;
-
-	priv->smbus_port_adapter[tp_port].of_node = i2c_node_target;
-	INIT_LIST_HEAD(&priv->smbus_port_adapter[tp_port].backend_entry);
-	for_each_available_child_of_node(i2c_node_target, i2c_node_tp) {
-		if (strcmp(i2c_node_tp->name, "backend"))
-			continue;
-
-		ret = of_property_read_u32(i2c_node_tp, "target-reg",
-					   &addr_dts);
-		if (ret)
-			return ret;
-
-		if (backend_node_is_exist(tp_port, priv, addr_dts))
-			continue;
-
-		ret = of_property_read_string(i2c_node_tp, "compatible",
-					      &compatible);
-		if (ret)
-			return ret;
-
-		backend = kzalloc(sizeof(*backend), GFP_KERNEL);
-		if (!backend)
-			return -ENOMEM;
-
-		backend->addr = addr_dts;
-		backend->compatible = compatible;
-		list_add(&backend->list,
-			 &priv->smbus_port_adapter[tp_port].backend_entry);
-	}
-
-	return 0;
-}
-
-/**
- * This function saves information about the rts490xa_hub's ports
- * working in slave mode. It takes its data from the DTs
- * (aspeed-bmc-intel-avc.dts) and saves the parameters
- * into the coresponding target port i2c_adapter_group structure
- * in the rts490xa_hub
- *
- * @dev: device used by rts490xa_hub
- * @i2c_node_hub: device node pointing to the hub
- * @priv: pointer to the rts490xa_hub structure
- */
-static void rts490xa_hub_parse_dt_tp(struct device *dev,
-				     const struct device_node *i2c_node_hub,
-				     struct rts490xa_hub *priv)
-{
-	struct device_node *i2c_node_target;
-	int ret;
-
-	for_each_available_child_of_node(i2c_node_hub, i2c_node_target) {
-		if (!strcmp(i2c_node_target->name, "target-port")) {
-			ret = read_backend_from_rts490xa_hub_dts(
-				i2c_node_target, priv);
-			if (ret)
-				dev_err(dev, "DTS entry invalid - error %d",
-					ret);
-		}
-	}
 }
 
 static int rts490xa_hub_gpio_direction_input(struct gpio_chip *gc, unsigned off)
@@ -1850,9 +1741,6 @@ static int rts490xa_hub_probe(struct i2c_client *client)
 		of_node_get(node);
 		rts490xa_hub_of_get_conf_static(dev, node);
 		of_node_put(node);
-
-		/* Parse DTS to find data on the SMBus target mode */
-		rts490xa_hub_parse_dt_tp(dev, node, priv);
 	}
 
 	if (node) {
@@ -1929,23 +1817,15 @@ error:
 static void rts490xa_hub_remove(struct i2c_client *client)
 {
 	struct rts490xa_hub *priv = i2c_get_clientdata(client);
-	struct i2c_adapter_group *g_adap;
-	struct smbus_backend *backend = NULL;
 	int i;
 
 	for (i = 0; i < RTS490XA_HUB_TP_MAX_COUNT; i++) {
 		if (priv->smbus_port_adapter[i].used) {
-			g_adap = &priv->smbus_port_adapter[i];
-			cancel_delayed_work_sync(&g_adap->delayed_work_polling);
-			list_for_each_entry(backend, &g_adap->backend_entry,
-					    list) {
-				i2c_unregister_device(backend->client);
-				kfree(backend);
-			}
-		}
-
-		if (priv->smbus_port_adapter[i].used)
+			cancel_delayed_work_sync(
+				&priv->smbus_port_adapter[i]
+					 .delayed_work_polling);
 			i2c_del_adapter(&priv->smbus_port_adapter[i].adapter);
+		}
 	}
 
 	cancel_delayed_work_sync(&priv->delayed_work);
