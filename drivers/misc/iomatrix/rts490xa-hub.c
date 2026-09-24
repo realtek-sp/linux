@@ -187,6 +187,7 @@
 #define RTS490XA_HUB_TP6_SMBUS_AGNT_STS		   0x6A
 #define RTS490XA_HUB_TP7_SMBUS_AGNT_STS		   0x6B
 #define RTS490XA_HUB_ONCHIP_TD_AND_SMBUS_AGNT_CONF 0x6C
+#define TARGET_AGENT_BUF_FULL_SDA_LOW_EN	   BIT(5)
 
 /* Transaction status checking mask */
 #define RTS490XA_HUB_CONTROLLER_AGENT_STATUS_MASK   (0xF0 | BIT(0))
@@ -1645,6 +1646,16 @@ static int rts490xa_hub_smbus_tp_algo(struct rts490xa_hub *priv, int i)
 
 	adap->timeout = 1000;
 	adap->retries = 3;
+
+	/* Enable SDA hold-low when both SMBus Target Agent buffers are full.
+	 * Used as a flow-control mechanism for MCTP to avoid upstream TX timeout
+	 * when target buffers are not serviced in time.
+	 */
+	ret = regmap_set_bits(priv->regmap,
+			      RTS490XA_HUB_ONCHIP_TD_AND_SMBUS_AGNT_CONF,
+			      TARGET_AGENT_BUF_FULL_SDA_LOW_EN);
+	if (ret)
+		return ret;
 
 	i2c_set_adapdata(adap, smbus);
 
