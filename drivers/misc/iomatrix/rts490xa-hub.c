@@ -1228,11 +1228,11 @@ static int rts490xa_hub_read_transaction_status(struct rts490xa_hub *priv,
  *
  * Return: 0 on success, negative errno on failure from hub status or regmap ops.
  * Note: for WR_RD the caller must ensure xfers[nxfers_i+1] exists, the address
- * matches, and write_len + read_len <= RTS490XA_HUB_SMBUS_PAYLOAD_SIZE.
+ * matches. The function checks the combined length after expanding RECV_LEN.
  */
 static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 				  struct i2c_msg *xfers, u8 target_port,
-				  u8 nxfers_i, u8 xfer_type)
+				  int nxfers_i, u8 xfer_type)
 {
 	u8 transaction_type = RTS490XA_HUB_SMBUS_400kHz;
 	u8 controller_buffer_page =
@@ -1242,6 +1242,8 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 	u8 target_port_code = BIT(target_port);
 	u8 rw_address = xfers[nxfers_i].addr << 1;
 	u8 desc[RTS490XA_HUB_SMBUS_DESCRIPTOR_SIZE] = { 0 };
+	struct i2c_msg *rd_msg = NULL;
+	bool recv_len = false;
 	int ret = 0;
 
 	transaction_type = rts490xa_hub_smbus_rate_bits_from_hz(
@@ -1252,17 +1254,34 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 		write_length = xfers[nxfers_i].len;
 		break;
 	case RTS490XA_HUB_SMBUS_XFER_READ:
-		read_length = xfers[nxfers_i].len;
+		rd_msg = &xfers[nxfers_i];
+		read_length = rd_msg->len;
 		rw_address |= BIT(0);
 		break;
 	case RTS490XA_HUB_SMBUS_XFER_WR_RD:
 		write_length = xfers[nxfers_i].len;
-		read_length = xfers[nxfers_i + 1].len;
+		rd_msg = &xfers[nxfers_i + 1];
+		read_length = rd_msg->len;
 		transaction_type |= BIT(0);
 		break;
 	default:
 		return -EINVAL;
 	}
+
+	/*
+	 * RECV_LEN callers provide room for the initial length plus 32 bytes.
+	 * Prefetch that maximum directly into their buffer, then update len
+	 * only after a successful read and Count validation.
+	 * The target must tolerate reads beyond its returned Count.
+	 */
+	if (rd_msg && (rd_msg->flags & I2C_M_RECV_LEN)) {
+		if (!rd_msg->len)
+			return -EINVAL;
+		recv_len = true;
+		read_length = I2C_SMBUS_BLOCK_MAX + rd_msg->len;
+	}
+	if (write_length + read_length > RTS490XA_HUB_SMBUS_PAYLOAD_SIZE)
+		return -EMSGSIZE;
 
 	/* Assemble descriptor */
 	desc[0] = rw_address;
@@ -1319,23 +1338,25 @@ static int rts490xa_hub_smbus_msg(struct rts490xa_hub *hub,
 		if (ret)
 			goto unlock;
 
-		if (xfer_type == RTS490XA_HUB_SMBUS_XFER_READ) {
-			ret = regmap_bulk_read(
-				hub->regmap,
-				RTS490XA_HUB_CONTROLLER_AGENT_BUFF_DATA,
-				xfers[nxfers_i].buf, read_length);
-		} else {
-			ret = regmap_bulk_read(
-				hub->regmap,
-				RTS490XA_HUB_CONTROLLER_AGENT_BUFF_DATA +
-					write_length,
-				xfers[nxfers_i + 1].buf, read_length);
-		}
+		ret = regmap_bulk_read(hub->regmap,
+				       RTS490XA_HUB_CONTROLLER_AGENT_BUFF_DATA +
+					       write_length,
+				       rd_msg->buf, read_length);
 		if (ret)
 			goto unlock;
 
 		ret = regmap_write(hub->regmap, RTS490XA_HUB_PAGE_PTR, 0x00);
 		mutex_unlock(&hub->page_mutex);
+		if (ret)
+			return ret;
+		if (recv_len) {
+			unsigned int count = rd_msg->buf[0];
+
+			if (!count || count > I2C_SMBUS_BLOCK_MAX)
+				return -EPROTO;
+			/* Preserve the initial overhead, including optional PEC. */
+			rd_msg->len += count;
+		}
 	}
 
 	return ret;
@@ -1348,10 +1369,8 @@ unlock:
 static inline bool rts490xa_hub_can_combine_wr_rd(const struct i2c_msg *w,
 						  const struct i2c_msg *r)
 {
-	/* w: write, r: read; same addr; total length within payload */
 	return !(w->flags & I2C_M_RD) && (r->flags & I2C_M_RD) &&
-	       w->addr == r->addr &&
-	       (w->len + r->len) <= RTS490XA_HUB_SMBUS_PAYLOAD_SIZE;
+	       w->addr == r->addr;
 }
 
 /**
@@ -1411,7 +1430,8 @@ static int i2c_hub_smbus_port_adapter_xfer(struct i2c_adapter *adap,
 
 static u32 i2c_hub_smbus_funcs(struct i2c_adapter *adapter)
 {
-	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C;
+	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C |
+	       I2C_FUNC_SMBUS_READ_BLOCK_DATA;
 }
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
