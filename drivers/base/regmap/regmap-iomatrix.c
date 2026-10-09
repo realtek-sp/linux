@@ -49,14 +49,15 @@
 #define SPIC_REQ_MAX_PAYLOAD (REG_BYTES + SPIC_WRITE_MAX_BYTES)
 
 /* Command definitions */
-#define CMD_WRITE_MEM	(0x03) /* single 32-bit write */
-#define CMD_READ_MEM	(0x04) /* single 32-bit read */
-#define CMD_PECI_OOB	(0x0A) /* PECI over eSPI OOB transaction */
-#define CMD_WRITE_SPIC	(0x0B) /* SPI flash write (fill EC sector buffer) */
-#define CMD_READ_SPIC	(0x0C) /* SPI flash read (reserved) */
-#define CMD_UPDATE_SPIC (0x0D) /* commit EC sector buffer */
-#define CMD_ERASE_SPIC	(0x0E) /* SPI flash sector erase (reserved) */
-#define CMD_REBOOT_EC	(0x0F) /* reboot EC after update (no response) */
+#define CMD_WRITE_MEM	  (0x03) /* single 32-bit write */
+#define CMD_READ_MEM	  (0x04) /* single 32-bit read */
+#define CMD_WRITE_MEM_MSK (0x07) /* single 32-bit masked write */
+#define CMD_PECI_OOB	  (0x0A) /* PECI over eSPI OOB transaction */
+#define CMD_WRITE_SPIC	  (0x0B) /* SPI flash write (fill EC sector buffer) */
+#define CMD_READ_SPIC	  (0x0C) /* SPI flash read (reserved) */
+#define CMD_UPDATE_SPIC	  (0x0D) /* commit EC sector buffer */
+#define CMD_ERASE_SPIC	  (0x0E) /* SPI flash sector erase (reserved) */
+#define CMD_REBOOT_EC	  (0x0F) /* reboot EC after update (no response) */
 
 #define DELAY_US_RDWR_MEM (50)
 #define SPIC_POLL_US	  (1000)
@@ -83,17 +84,22 @@
 /*
  * Generic I2C send + response receive helper.
  *
- * - Sends a request buffer of length req_len.
- * - Waits a short delay for device processing.
- * - Receives 3-byte response header and validates the cmd.
+ * - Sends the request and reads the response header (plus @data_len payload
+ *   bytes) in one combined transfer: write, repeated START, read.  The EC
+ *   answers register commands while it holds SCL low, so the header normally
+ *   comes back in this transfer.
+ * - If the EC has not answered yet (0xFF echo), waits a short delay and
+ *   polls the cmd echo one byte at a time, then reads the rest of the header.
+ * - Reads whatever payload bytes the header announces and were not read yet.
  * - Returns rsp_type and, if present, a 32-bit LE payload (for DAT/ERR).
  *
  * Parameters:
  *   context      - device context (struct device *)
- *   delay_us     - tiny delay before reading the response
+ *   delay_us     - tiny delay between polls of the response
  *   req          - request buffer to send
  *   req_len      - request length in bytes
  *   expected_cmd - expected response command echo
+ *   data_len     - payload bytes expected on success (0 or VAL_BYTES)
  *   rsp_type     - out parameter for response type (ACK/DAT/ERR)
  *   payload_out  - out parameter for 32-bit payload (may be NULL if not needed)
  *
@@ -101,33 +107,54 @@
  *   0 on success (including ACK or DAT/ERR properly read), negative on failure.
  */
 static int iomatrix_send_and_recv(void *context, u32 delay_us, const u8 *req,
-				  u32 req_len, u8 expected_cmd, u8 *rsp_type,
-				  u32 *payload_out)
+				  u32 req_len, u8 expected_cmd, u32 data_len,
+				  u8 *rsp_type, u32 *payload_out)
 {
 	struct device *dev = context;
 	struct i2c_client *i2c = to_i2c_client(dev);
+	u8 rsp[HEAD_BYTES + VAL_BYTES];
+	/* Same flags as i2c_master_send/recv() would use */
+	struct i2c_msg msgs[2] = {
+		{ .addr = i2c->addr,
+		  .flags = i2c->flags & I2C_M_TEN,
+		  .len = req_len,
+		  .buf = (u8 *)req },
+		{ .addr = i2c->addr,
+		  .flags = (i2c->flags & I2C_M_TEN) | I2C_M_RD,
+		  .len = HEAD_BYTES + data_len,
+		  .buf = rsp },
+	};
+	u32 got, payload_len;
 	int ret, tries;
-	u8 rsp_head[HEAD_BYTES];
 
-	/* Send request */
-	ret = i2c_master_send(i2c, req, req_len);
+	/* Send request and read the response header in the same transfer */
+	ret = i2c_transfer(i2c->adapter, msgs, ARRAY_SIZE(msgs));
 	if (ret < 0) {
-		dev_err(dev, "I2C send failed: %d\n", ret);
+		dev_err(dev, "I2C transfer failed: %d\n", ret);
 		return ret;
 	}
-	if (ret != req_len) {
-		dev_err(dev, "I2C short write: wrote %d, expected %u\n", ret,
-			req_len);
+	if (ret != ARRAY_SIZE(msgs)) {
+		dev_err(dev, "I2C short transfer: %d of %zu msgs\n", ret,
+			ARRAY_SIZE(msgs));
 		return -EIO;
 	}
 
-	/* Tiny delay before reading the response */
+	if (rsp[0] == expected_cmd) {
+		got = data_len;
+		goto parse;
+	}
+	if (rsp[0] != RSP_CMD_RETRY_TOKEN) {
+		dev_err(dev, "Unexpected rsp cmd: 0x%02x, expected 0x%02x\n",
+			rsp[0], expected_cmd);
+		return -EPROTO;
+	}
+
+	/* Not answered in-transfer: poll the cmd echo after a tiny delay */
 	udelay(delay_us);
 
-	/* Read response header with retry on 0xFF echo */
 	for (tries = 0; tries < RSP_CMD_RETRY_MAX; tries++) {
 		/* retry until response header get expected cmd */
-		ret = i2c_master_recv(i2c, rsp_head, 1);
+		ret = i2c_master_recv(i2c, rsp, 1);
 		if (ret < 0) {
 			dev_err(dev, "I2C rsp_head receive cmd failed: %d\n",
 				ret);
@@ -142,10 +169,10 @@ static int iomatrix_send_and_recv(void *context, u32 delay_us, const u8 *req,
 		}
 
 		/* Validate response command echo */
-		if (rsp_head[0] == expected_cmd)
+		if (rsp[0] == expected_cmd)
 			break;
 
-		if (rsp_head[0] == RSP_CMD_RETRY_TOKEN) {
+		if (rsp[0] == RSP_CMD_RETRY_TOKEN) {
 			if (tries == RSP_CMD_RETRY_MAX - 1) {
 				dev_err(dev,
 					"Rsp cmd 0xFF timeout after %d tries (expected 0x%02x)\n",
@@ -158,57 +185,65 @@ static int iomatrix_send_and_recv(void *context, u32 delay_us, const u8 *req,
 		}
 
 		dev_err(dev, "Unexpected rsp cmd: 0x%02x, expected 0x%02x\n",
-			rsp_head[0], expected_cmd);
+			rsp[0], expected_cmd);
 		return -EPROTO;
 	}
 
 	/* Receive response type and response len */
-	ret = i2c_master_recv(i2c, rsp_head + 1, sizeof(rsp_head) - 1);
+	ret = i2c_master_recv(i2c, rsp + 1, HEAD_BYTES - 1);
 	if (ret < 0) {
 		dev_err(dev, "I2C rsp_head receive failed: %d\n", ret);
 		return ret;
 	}
-	if (ret != (sizeof(rsp_head) - 1)) {
-		dev_err(dev, "I2C short rsp_head read: got %d, expected %zu\n",
-			ret, sizeof(rsp_head));
+	if (ret != (HEAD_BYTES - 1)) {
+		dev_err(dev, "I2C short rsp_head read: got %d, expected %d\n",
+			ret, HEAD_BYTES - 1);
 		return -EIO;
 	}
+	got = 0;
 
+parse:
 	/* Handle response data */
-	*rsp_type = rsp_head[1];
-
-	/* ACK has no payload */
-	if (*rsp_type == RSP_ACK) {
-		if (payload_out)
-			*payload_out = 0;
-		return 0;
+	*rsp_type = rsp[1];
+	payload_len = rsp[2] & PAYLOAD_MAX_BY_PROTO;
+	if (payload_len > VAL_BYTES) {
+		dev_err(dev, "Rsp payload too long: %u (cmd 0x%02x)\n",
+			payload_len, expected_cmd);
+		return -EPROTO;
 	}
 
-	/* DAT or ERR should carry a 32-bit payload */
-	u8 rsp_payload[VAL_BYTES];
-
-	ret = i2c_master_recv(i2c, rsp_payload, sizeof(rsp_payload));
-	if (ret < 0) {
-		dev_err(dev, "I2C rsp_payload receive failed: %d\n", ret);
-		return ret;
+	/* Read the payload bytes not covered by the first transfer */
+	if (payload_len > got) {
+		ret = i2c_master_recv(i2c, rsp + HEAD_BYTES + got,
+				      payload_len - got);
+		if (ret < 0) {
+			dev_err(dev, "I2C rsp_payload receive failed: %d\n",
+				ret);
+			return ret;
+		}
+		if (ret != payload_len - got) {
+			dev_err(dev,
+				"I2C short payload read: got %d, expected %u\n",
+				ret, payload_len - got);
+			return -EIO;
+		}
 	}
-	if (ret != sizeof(rsp_payload)) {
-		dev_err(dev, "I2C short payload read: got %d, expected %zu\n",
-			ret, sizeof(rsp_payload));
-		return -EIO;
-	}
 
+	/* Bytes past payload_len are filler from the EC; drop them */
+	memset(rsp + HEAD_BYTES + payload_len, 0, VAL_BYTES - payload_len);
 	if (payload_out)
-		*payload_out = get_unaligned_le32(rsp_payload);
+		*payload_out = get_unaligned_le32(rsp + HEAD_BYTES);
 
 	return 0;
 }
 
 /*
- * Single 32-bit read/write transaction over I2C.
+ * Single 32-bit register transaction over I2C.
  *
- * For write (CMD_WRITE_MEM): payload = reg(4) + val(4)
- * For read  (CMD_READ_MEM): payload = reg(4)
+ * For write (CMD_WRITE_MEM):          payload = reg(4) + val(4)
+ * For read  (CMD_READ_MEM):           payload = reg(4)
+ * For masked write (CMD_WRITE_MEM_MSK): payload = reg(4) + keep(4) + val(4),
+ *                                     the EC writes (*reg & keep) | val
  *
  * Response handling:
  *   - ACK for successful write, no payload.
@@ -216,12 +251,12 @@ static int iomatrix_send_and_recv(void *context, u32 delay_us, const u8 *req,
  *   - ERR for device error, 4-byte error code payload.
  */
 static int iomatrix_bus_xfer(u8 cmd, void *context, u32 reg, u32 w_val,
-			     u32 *r_val)
+			     u32 w_keep, u32 *r_val)
 {
 	int ret;
 	struct device *dev = context;
 	u32 payload_len;
-	u8 req_buf[HEAD_BYTES + REG_BYTES + VAL_BYTES];
+	u8 req_buf[HEAD_BYTES + REG_BYTES + VAL_BYTES + VAL_BYTES];
 	u8 rsp_type;
 	u32 payload = 0;
 
@@ -233,18 +268,29 @@ static int iomatrix_bus_xfer(u8 cmd, void *context, u32 reg, u32 w_val,
 	/* Prepare request header and payload */
 	req_buf[0] = cmd;
 	req_buf[1] = 0; /* request rsp_type field (unused for request) */
-	payload_len = (CMD_WRITE_MEM == cmd) ? (REG_BYTES + VAL_BYTES) :
-					       REG_BYTES;
-	req_buf[2] = (u8)payload_len;
-
 	put_unaligned_le32(reg, &req_buf[HEAD_BYTES]);
-	if (cmd == CMD_WRITE_MEM)
+	switch (cmd) {
+	case CMD_WRITE_MEM:
 		put_unaligned_le32(w_val, &req_buf[HEAD_BYTES + REG_BYTES]);
+		payload_len = REG_BYTES + VAL_BYTES;
+		break;
+	case CMD_WRITE_MEM_MSK:
+		put_unaligned_le32(w_keep, &req_buf[HEAD_BYTES + REG_BYTES]);
+		put_unaligned_le32(
+			w_val, &req_buf[HEAD_BYTES + REG_BYTES + VAL_BYTES]);
+		payload_len = REG_BYTES + VAL_BYTES + VAL_BYTES;
+		break;
+	default:
+		payload_len = REG_BYTES;
+		break;
+	}
+	req_buf[2] = (u8)payload_len;
 
 	/* Send and receive common path */
 	ret = iomatrix_send_and_recv(context, DELAY_US_RDWR_MEM, req_buf,
-				     HEAD_BYTES + payload_len, cmd, &rsp_type,
-				     &payload);
+				     HEAD_BYTES + payload_len, cmd,
+				     cmd == CMD_READ_MEM ? VAL_BYTES : 0,
+				     &rsp_type, &payload);
 	if (ret < 0)
 		return ret;
 
@@ -352,8 +398,8 @@ static int iomatrix_spic_ack_cmd(void *context, u8 cmd, const u8 *payload,
 	memcpy(req_buf + HEAD_BYTES, payload, payload_len);
 
 	ret = iomatrix_send_and_recv(context, DELAY_US_RDWR_MEM, req_buf,
-				     HEAD_BYTES + payload_len, cmd, &rsp_type,
-				     &error);
+				     HEAD_BYTES + payload_len, cmd, 0,
+				     &rsp_type, &error);
 	if (ret)
 		return ret;
 	if (rsp_type == RSP_ACK)
@@ -742,17 +788,25 @@ EXPORT_SYMBOL_GPL(iomatrix_regmap_peci_oob);
 
 static int regmap_i2c_write(void *context, u32 reg, u32 val)
 {
-	return iomatrix_bus_xfer(CMD_WRITE_MEM, context, reg, val, NULL);
+	return iomatrix_bus_xfer(CMD_WRITE_MEM, context, reg, val, 0, NULL);
 }
 
 static int regmap_i2c_read(void *context, u32 reg, u32 *val)
 {
-	return iomatrix_bus_xfer(CMD_READ_MEM, context, reg, 0, val);
+	return iomatrix_bus_xfer(CMD_READ_MEM, context, reg, 0, 0, val);
+}
+
+/* The EC computes (*reg & keep) | val, so pass the complement of @mask. */
+static int regmap_i2c_update_bits(void *context, u32 reg, u32 mask, u32 val)
+{
+	return iomatrix_bus_xfer(CMD_WRITE_MEM_MSK, context, reg, val & mask,
+				 ~mask, NULL);
 }
 
 static const struct regmap_bus iomatrix_regmap_i2c = {
 	.reg_write = regmap_i2c_write,
 	.reg_read = regmap_i2c_read,
+	.reg_update_bits = regmap_i2c_update_bits,
 };
 
 struct regmap *__regmap_init_i2c_iomatrix(struct i2c_client *i2c,
