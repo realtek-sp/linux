@@ -208,9 +208,79 @@
 		rts591x-i2c1 {
 			compatible = "realtek,rts591x-i2c";
 			reg = <0x40250000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			id = <1>;
 			interrupts = <RTS591X_IOMATRIX_IRQ_I2C1>;
 			status = "okay";
+
+			/* hub on PCOM-C882 */
+			rts490xa-hub@70,1 {
+				compatible = "realtek,rts490xa-hub";
+				reg = <0x70>;
+
+				cp0-ldo-en = "enabled";
+				cp1-ldo-en = "enabled";
+				cp0-ldo-volt = "1.8V";
+				cp1-ldo-volt = "1.8V";
+				tp0145-ldo-en = "enabled";
+				tp2367-ldo-en = "enabled";
+				tp0145-ldo-volt = "1.8V";
+				tp2367-ldo-volt = "1.8V";
+				tp0145-pullup = "500R";
+				tp2367-pullup = "500R";
+				tp0145-io-strength = "30Ohms";
+				tp2367-io-strength = "30Ohms";
+				cp0-io-strength = "20Ohms";
+				cp1-io-strength = "20Ohms";
+
+				target-port@0 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					mode = "smbus";
+					pullup = "enabled";
+					mctp-controller;
+					backend@10 {
+						compatible = "mctp-i2c-controller";
+						reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+					};
+				};
+
+				target-port@1 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					mode = "smbus";
+					pullup = "enabled";
+					backend@10 {
+						compatible = "slave-mqueue";
+						reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+					};
+				};
+
+				target-port@4 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					mode = "smbus";
+					pullup = "enabled";
+					io-mode = "od-pp";
+					backend@10 {
+						compatible = "slave-mqueue";
+						reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+					};
+				};
+
+				target-port@5 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					mode = "smbus";
+					pullup = "enabled";
+					io-mode = "od-pp";
+					backend@10 {
+						compatible = "slave-mqueue";
+						reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+					};
+				};
+			};
 		};
 
 		rts591x-i2c2 {

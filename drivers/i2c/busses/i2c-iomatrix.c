@@ -165,7 +165,7 @@ static void dw_i2c_plat_remove(struct platform_device *pdev)
 static const struct of_device_id dw_i2c_of_match[] = {
 	{
 		.compatible = "realtek,rts591x-i2c",
-		.data = (void *)MODEL_RTS591X,
+		.data = (void *)(MODEL_RTS591X | IC_EMPTYFIFO_HOLD_MASTER_EN),
 	},
 	{},
 };
