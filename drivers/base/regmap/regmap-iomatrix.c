@@ -27,14 +27,13 @@
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
-#include <linux/minmax.h>
+#include <linux/iopoll.h>
 
 #include "internal.h"
 
 #define HEAD_BYTES (3)
 #define REG_BYTES  (4)
 #define VAL_BYTES  (4)
-#define LEN_BYTES  (4)
 
 #define ERASE_PAYLOAD_B (REG_BYTES)
 
@@ -60,7 +59,6 @@
 #define CMD_REBOOT_EC	  (0x0F) /* reboot EC after update (no response) */
 
 #define DELAY_US_RDWR_MEM (50)
-#define SPIC_POLL_US	  (1000)
 #define SPIC_TIMEOUT_US	  (2000000)
 
 /* EC reboot: settle past the WDT reset, then poll the slave address until it
@@ -80,6 +78,9 @@
 #define RSP_DAT		    (0x02)
 #define RSP_CMD_RETRY_TOKEN (0xFF)
 #define RSP_CMD_RETRY_MAX   (100)
+
+/* RSP_ERR payload codes (from device) */
+#define ERR_OUT_OF_RANGE (0x00000002)
 
 /*
  * Generic I2C send + response receive helper.
@@ -315,34 +316,42 @@ static int iomatrix_bus_xfer(u8 cmd, void *context, u32 reg, u32 w_val,
 	return -EPROTO;
 }
 
-static int iomatrix_spic_recv(void *context, u8 expected_cmd, u8 *rsp_type,
-			      u8 *rsp_buf, u32 *rsp_len)
+/*
+ * Send a request the EC runs in task context and poll for its response:
+ * wait @delay_us, poll the cmd echo every @poll_us for up to @timeout_us,
+ * then read a payload of up to *@rsp_len bytes into @rsp_buf.
+ */
+static int iomatrix_send_and_poll(struct device *dev, const u8 *req,
+				  u32 req_len, u32 delay_us, u32 poll_us,
+				  u32 timeout_us, u8 *rsp_type, u8 *rsp_buf,
+				  u32 *rsp_len)
 {
-	struct device *dev = context;
 	struct i2c_client *i2c = to_i2c_client(dev);
-	unsigned long timeout = jiffies + usecs_to_jiffies(SPIC_TIMEOUT_US);
 	u8 rsp_head[HEAD_BYTES];
 	u32 payload_len;
-	int ret;
+	int ret, n;
 
-	do {
-		ret = i2c_master_recv(i2c, rsp_head, 1);
-		if (ret < 0)
-			return ret;
-		if (ret != 1)
-			return -EIO;
-		if (rsp_head[0] == expected_cmd)
-			break;
-		if (rsp_head[0] != RSP_CMD_RETRY_TOKEN) {
-			dev_err(dev, "SPIC unexpected cmd echo: 0x%02x\n",
-				rsp_head[0]);
-			return -EPROTO;
-		}
-		udelay(DELAY_US_RDWR_MEM);
-	} while (!time_after(jiffies, timeout));
+	ret = i2c_master_send(i2c, req, req_len);
+	if (ret < 0)
+		return ret;
+	if (ret != req_len)
+		return -EIO;
 
-	if (rsp_head[0] != expected_cmd)
-		return -ETIMEDOUT;
+	fsleep(delay_us);
+	ret = read_poll_timeout(i2c_master_recv, n,
+				n < 0 || rsp_head[0] != RSP_CMD_RETRY_TOKEN,
+				poll_us, timeout_us, false, i2c, rsp_head, 1);
+	if (ret)
+		return ret;
+	if (n < 0)
+		return n;
+	if (n != 1)
+		return -EIO;
+	if (rsp_head[0] != req[0]) {
+		dev_err(dev, "Unexpected cmd echo: 0x%02x, expected 0x%02x\n",
+			rsp_head[0], req[0]);
+		return -EPROTO;
+	}
 
 	ret = i2c_master_recv(i2c, rsp_head + 1, HEAD_BYTES - 1);
 	if (ret < 0)
@@ -407,7 +416,7 @@ static int iomatrix_spic_ack_cmd(void *context, u8 cmd, const u8 *payload,
 	if (rsp_type == RSP_ERR) {
 		dev_err(dev, "SPIC command 0x%02x failed: 0x%08x\n", cmd,
 			error);
-		return error == 0x00000002 ? -ERANGE : -EIO;
+		return error == ERR_OUT_OF_RANGE ? -ERANGE : -EIO;
 	}
 
 	dev_err(dev, "SPIC command 0x%02x unexpected rsp_type 0x%02x\n", cmd,
@@ -478,13 +487,11 @@ EXPORT_SYMBOL_GPL(iomatrix_regmap_spic_write);
 
 /*
  * SPIC read returns a variable-length DATA payload, which iomatrix_send_and_recv
- * (fixed 4-byte payload) cannot receive, so the request is sent directly and the
- * bulk response is drained by iomatrix_spic_recv.
+ * (fixed 4-byte payload) cannot receive, so it goes through
+ * iomatrix_send_and_poll.
  */
 int iomatrix_regmap_spic_read(struct regmap *map, u32 addr, u8 *buf, u32 len)
 {
-	struct device *dev;
-	struct i2c_client *i2c;
 	u8 req_buf[HEAD_BYTES + REG_BYTES + 1];
 	u8 rsp_type;
 	u32 rsp_len = len;
@@ -493,22 +500,15 @@ int iomatrix_regmap_spic_read(struct regmap *map, u32 addr, u8 *buf, u32 len)
 	if (!map || !buf || !len || len > PAYLOAD_MAX_BY_PROTO)
 		return -EINVAL;
 
-	dev = map->bus_context;
-	i2c = to_i2c_client(dev);
-
 	req_buf[0] = CMD_READ_SPIC;
 	req_buf[1] = 0;
 	req_buf[2] = REG_BYTES + 1;
 	put_unaligned_le32(addr, &req_buf[HEAD_BYTES]);
 	req_buf[HEAD_BYTES + REG_BYTES] = (u8)len;
 
-	ret = i2c_master_send(i2c, req_buf, sizeof(req_buf));
-	if (ret < 0)
-		return ret;
-	if (ret != sizeof(req_buf))
-		return -EIO;
-
-	ret = iomatrix_spic_recv(dev, CMD_READ_SPIC, &rsp_type, buf, &rsp_len);
+	ret = iomatrix_send_and_poll(map->bus_context, req_buf, sizeof(req_buf),
+				     0, DELAY_US_RDWR_MEM, SPIC_TIMEOUT_US,
+				     &rsp_type, buf, &rsp_len);
 	if (ret)
 		return ret;
 	if (rsp_type != RSP_DAT || rsp_len != len)
@@ -522,13 +522,12 @@ EXPORT_SYMBOL_GPL(iomatrix_regmap_spic_read);
  * Commit the EC sector buffer filled by CMD_WRITE_SPIC (no payload).  The EC
  * compares the buffer against Flash and erases + programs as needed, so the
  * response may take up to the SPIC timeout.  This uses the sleeping poll of
- * iomatrix_spic_recv rather than iomatrix_send_and_recv (which busy-waits and is
- * tuned for fast register responses) to wait out the erase + program.
+ * iomatrix_send_and_poll rather than iomatrix_send_and_recv (which busy-waits
+ * and is tuned for fast register responses) to wait out the erase + program.
  */
 int iomatrix_regmap_spic_update(struct regmap *map)
 {
 	struct device *dev;
-	struct i2c_client *i2c;
 	u8 req_buf[HEAD_BYTES];
 	u8 rsp_buf[VAL_BYTES];
 	u32 rsp_len = sizeof(rsp_buf);
@@ -539,20 +538,14 @@ int iomatrix_regmap_spic_update(struct regmap *map)
 		return -EINVAL;
 
 	dev = map->bus_context;
-	i2c = to_i2c_client(dev);
 
 	req_buf[0] = CMD_UPDATE_SPIC;
 	req_buf[1] = 0;
 	req_buf[2] = 0;
 
-	ret = i2c_master_send(i2c, req_buf, sizeof(req_buf));
-	if (ret < 0)
-		return ret;
-	if (ret != sizeof(req_buf))
-		return -EIO;
-
-	ret = iomatrix_spic_recv(dev, CMD_UPDATE_SPIC, &rsp_type, rsp_buf,
-				 &rsp_len);
+	ret = iomatrix_send_and_poll(dev, req_buf, sizeof(req_buf), 0,
+				     DELAY_US_RDWR_MEM, SPIC_TIMEOUT_US,
+				     &rsp_type, rsp_buf, &rsp_len);
 	if (ret)
 		return ret;
 	if (rsp_type == RSP_ACK)
@@ -561,7 +554,7 @@ int iomatrix_regmap_spic_update(struct regmap *map)
 		u32 error = get_unaligned_le32(rsp_buf);
 
 		dev_err(dev, "SPIC update failed: 0x%08x\n", error);
-		return error == 0x00000002 ? -ERANGE : -EIO;
+		return error == ERR_OUT_OF_RANGE ? -ERANGE : -EIO;
 	}
 
 	dev_err(dev, "SPIC update unexpected rsp_type 0x%02x\n", rsp_type);
@@ -660,12 +653,9 @@ static int iomatrix_peci_oob_exec(void *context, const u8 *req_buf, u32 req_len,
 				  u8 *rsp_buf, u32 *rsp_len)
 {
 	struct device *dev = context;
-	struct i2c_client *i2c = to_i2c_client(dev);
-	int ret, tries;
 	u8 tx_buf[HEAD_BYTES + PAYLOAD_MAX_BY_PROTO];
-	u8 rsp_head[HEAD_BYTES];
 	u8 rsp_type;
-	u32 payload_len;
+	int ret;
 
 	if (req_len > PAYLOAD_MAX_BY_PROTO) {
 		dev_err(dev, "PECI OOB payload too long: %u\n", req_len);
@@ -674,98 +664,26 @@ static int iomatrix_peci_oob_exec(void *context, const u8 *req_buf, u32 req_len,
 
 	tx_buf[0] = CMD_PECI_OOB;
 	tx_buf[1] = 0x00;
-	tx_buf[2] = req_len & 0x3F;
+	tx_buf[2] = (u8)req_len;
 	memcpy(tx_buf + HEAD_BYTES, req_buf, req_len);
 
-	/* Send request */
-	ret = i2c_master_send(i2c, tx_buf, HEAD_BYTES + req_len);
-	if (ret < 0) {
-		dev_err(dev, "PECI OOB I2C send failed: %d\n", ret);
+	ret = iomatrix_send_and_poll(dev, tx_buf, HEAD_BYTES + req_len,
+				     PECI_OOB_INIT_DELAY_MS * USEC_PER_MSEC,
+				     PECI_OOB_POLL_US, PECI_OOB_TIMEOUT_US,
+				     &rsp_type, rsp_buf, rsp_len);
+	if (ret) {
+		dev_err(dev, "PECI OOB transaction failed: %d\n", ret);
 		return ret;
 	}
-	if (ret != HEAD_BYTES + req_len) {
-		dev_err(dev, "PECI OOB I2C short write: %d\n", ret);
-		return -EIO;
-	}
 
-	/* Give the EC a short head start, then poll for the response header. */
-	mdelay(PECI_OOB_INIT_DELAY_MS);
-
-	for (tries = 0; tries < PECI_OOB_TIMEOUT_US / PECI_OOB_POLL_US;
-	     tries++) {
-		ret = i2c_master_recv(i2c, rsp_head, 1);
-		if (ret < 0) {
-			dev_err(dev, "PECI OOB I2C recv cmd failed: %d\n", ret);
-			return ret;
-		}
-		if (ret != 1) {
-			dev_err(dev, "PECI OOB short cmd read: %d\n", ret);
-			return -EIO;
-		}
-
-		if (rsp_head[0] == CMD_PECI_OOB)
-			break;
-
-		if (rsp_head[0] == RSP_CMD_RETRY_TOKEN) {
-			udelay(PECI_OOB_POLL_US);
-			continue;
-		}
-
-		dev_err(dev, "PECI OOB unexpected cmd echo: 0x%02x\n",
-			rsp_head[0]);
-		return -EPROTO;
-	}
-
-	if (tries == PECI_OOB_TIMEOUT_US / PECI_OOB_POLL_US) {
-		dev_err(dev, "PECI OOB timeout waiting for response\n");
-		return -ETIMEDOUT;
-	}
-
-	/* Read remaining response header bytes. */
-	ret = i2c_master_recv(i2c, rsp_head + 1, HEAD_BYTES - 1);
-	if (ret < 0) {
-		dev_err(dev, "PECI OOB I2C recv header failed: %d\n", ret);
-		return ret;
-	}
-	if (ret != HEAD_BYTES - 1) {
-		dev_err(dev, "PECI OOB short header: %d\n", ret);
-		return -EIO;
-	}
-
-	rsp_type = rsp_head[1];
-	payload_len = rsp_head[2] & 0x3F;
-
-	if (rsp_type == RSP_ACK) {
-		*rsp_len = 0;
+	if (rsp_type == RSP_ACK || rsp_type == RSP_DAT)
 		return 0;
-	}
 
-	if (payload_len > *rsp_len)
-		payload_len = *rsp_len;
-
-	if (rsp_type == RSP_DAT || rsp_type == RSP_ERR) {
-		u8 rsp_payload[64];
-		u32 read_len;
-
-		read_len = min_t(u32, payload_len, sizeof(rsp_payload));
-		ret = i2c_master_recv(i2c, rsp_payload, read_len);
-		if (ret < 0)
-			return ret;
-		if (ret != (int)read_len) {
-			dev_err(dev, "PECI OOB short payload: %d\n", ret);
-			return -EIO;
-		}
-		memcpy(rsp_buf, rsp_payload, read_len);
-		*rsp_len = read_len;
-
-		if (rsp_type == RSP_DAT)
-			return 0;
-
+	if (rsp_type == RSP_ERR)
 		dev_err(dev, "PECI OOB device error\n");
-		return -EPROTO;
-	}
-
-	dev_err(dev, "PECI OOB unexpected rsp_type: 0x%02x\n", rsp_type);
+	else
+		dev_err(dev, "PECI OOB unexpected rsp_type: 0x%02x\n",
+			rsp_type);
 	return -EPROTO;
 }
 
